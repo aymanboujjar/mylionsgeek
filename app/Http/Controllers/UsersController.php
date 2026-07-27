@@ -81,6 +81,8 @@ class UsersController extends Controller
             'email' => 'email',
             'cin' => 'cin',
             'phone' => 'phone',
+            'gender' => 'gender',
+            'has_handicap' => 'has_handicap',
             'status' => 'status',
             'role' => 'role',
             'formation' => 'formation',
@@ -108,6 +110,20 @@ class UsersController extends Controller
             'transformers' => [
                 'formation' => function ($user) {
                     return optional($user->formation)->name ?? '';
+                },
+                'gender' => function ($user) {
+                    return match ($user->gender) {
+                        'male' => 'Male',
+                        'female' => 'Female',
+                        default => '',
+                    };
+                },
+                'has_handicap' => function ($user) {
+                    if ($user->has_handicap === null) {
+                        return '';
+                    }
+
+                    return ((int) $user->has_handicap === 1) ? 'Oui' : 'Non';
                 },
                 'access_studio' => function ($user) {
                     return (string) $user->access_studio === '1' || $user->access_studio === 1 ? 'Yes' : 'No';
@@ -705,6 +721,8 @@ class UsersController extends Controller
             'email' => $user->email,
             'phone' => $user->phone,
             'cin' => $user->cin,
+            'gender' => $user->gender,
+            'has_handicap' => $user->has_handicap,
             'status' => $user->status,
             'formation_id' => $user->formation_id,
             'image' => $user->image,
@@ -1031,6 +1049,8 @@ class UsersController extends Controller
             'formation_id' => 'nullable|integer|exists:formations,id',
             'phone' => 'nullable|string',
             'cin' => 'nullable|string',
+            'gender' => 'nullable|in:male,female',
+            'has_handicap' => 'nullable|in:0,1',
             'speciality' => 'nullable|string|max:255',
             'image' => 'nullable|image',
             'cover' => 'nullable|image', // <-- allow cover image
@@ -1039,6 +1059,24 @@ class UsersController extends Controller
             'access_studio' => 'nullable|integer|in:0,1',
             'access_scan' => 'nullable|integer|in:0,1',
         ]);
+
+        // Gender / handicap: staff-only; allow clearing via empty string
+        if (! $canEditOthers) {
+            unset($validated['gender'], $validated['has_handicap']);
+        } else {
+            if ($request->exists('gender')) {
+                $gender = $request->input('gender');
+                $validated['gender'] = ($gender === null || $gender === '') ? null : $gender;
+            }
+            if ($request->exists('has_handicap')) {
+                $handicap = $request->input('has_handicap');
+                if ($handicap === null || $handicap === '') {
+                    $validated['has_handicap'] = null;
+                } else {
+                    $validated['has_handicap'] = (int) $handicap === 1;
+                }
+            }
+        }
 
             if ($request->has('formation_id')) {
             $formation = Formation::query()->whereKey($request->formation_id)->first();

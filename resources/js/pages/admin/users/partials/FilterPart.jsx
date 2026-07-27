@@ -13,7 +13,7 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, filteredU
 
     return (
         <>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-7">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-8">
                 {/* Search Input */}
                 <div className="relative">
                     <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-500" />
@@ -129,6 +129,24 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, filteredU
                     </SelectContent>
                 </Select>
 
+                {/* Select by Gender */}
+                <Select value={filters.gender || undefined} onValueChange={(e) => handleChange('gender', e === 'all' ? '' : e)}>
+                    <SelectTrigger className="bg-[#e5e5e5] text-[#0a0a0a] data-[placeholder]:text-[#0a0a0a]/50 dark:bg-[#262626] dark:text-white dark:data-[placeholder]:text-white">
+                        <SelectValue placeholder="Select By Genre" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#e5e5e5] text-[#0a0a0a] dark:bg-[#262626] dark:text-white">
+                        <SelectItem value="all" className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
+                            All
+                        </SelectItem>
+                        <SelectItem value="male" className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
+                            Male
+                        </SelectItem>
+                        <SelectItem value="female" className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
+                            Female
+                        </SelectItem>
+                    </SelectContent>
+                </Select>
+
                 {/* Reset Button */}
                 <Button
                     className="flex w-fit cursor-pointer items-center gap-2 rounded-lg bg-[#e5e5e5] px-2 py-1 text-[#0a0a0a] dark:bg-[#262626] dark:text-white"
@@ -144,6 +162,7 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, filteredU
                                       status: '',
                                       date: '',
                                       field: null,
+                                      gender: '',
                                   },
                         )
                     }

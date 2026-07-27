@@ -9,6 +9,7 @@ import { router, usePage } from '@inertiajs/react';
 import { Briefcase, ExternalLink, Facebook, Github, ImagePlus, Instagram, Linkedin, MessageCircle, Send, Trash, Twitter, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { normalizeStatusForSelect, resolveStatusOptions } from '@/components/helpers/userStatuses';
+import { GENDER_OPTIONS, HANDICAP_OPTIONS, handicapSelectValue } from '@/components/helpers/userDemographics';
 import Rolegard from '../../../../components/rolegard';
 import RolesMultiSelect from './RolesMultiSelect';
 
@@ -79,6 +80,8 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         formation_id: editedUser?.formation_id || '',
         phone: editedUser?.phone ?? '',
         cin: editedUser?.cin ?? '',
+        gender: editedUser?.gender || 'none',
+        has_handicap: handicapSelectValue(editedUser?.has_handicap),
         speciality: editedUser?.speciality ?? '',
         image: editedUser?.image || null,
         resumeFile: null,
@@ -123,6 +126,8 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                 formation_id: editedUser.formation_id || '',
                 phone: editedUser.phone ?? '',
                 cin: editedUser.cin ?? '',
+                gender: editedUser.gender || 'none',
+                has_handicap: handicapSelectValue(editedUser.has_handicap),
                 speciality: editedUser.speciality ?? '',
                 image: editedUser?.image || null,
                 resumeFile: null,
@@ -213,6 +218,11 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         form.append('cin', formData.cin);
         form.append('speciality', formData.speciality ?? '');
         form.append('formation_id', formData.formation_id || '');
+
+        if (canEditOthers) {
+            form.append('gender', formData.gender === 'none' ? '' : formData.gender);
+            form.append('has_handicap', formData.has_handicap === 'none' ? '' : formData.has_handicap);
+        }
 
         form.append('access_studio', formData.access_studio === 'Yes' ? 1 : 0);
         form.append('access_cowork', formData.access_cowork === 'Yes' ? 1 : 0);
@@ -308,6 +318,42 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                             <Label htmlFor="cin">CIN</Label>
                             <Input id="cin" value={formData.cin || ''} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} />
                         </div>
+                    )}
+                    {canEditOthers && (
+                        <>
+                            <div className="col-span-1">
+                                <Label>Genre</Label>
+                                <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select gender" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">Not set</SelectItem>
+                                        {GENDER_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="col-span-1">
+                                <Label>Handicap</Label>
+                                <Select value={formData.has_handicap} onValueChange={(v) => setFormData({ ...formData, has_handicap: v })}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select handicap" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">Not set</SelectItem>
+                                        {HANDICAP_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </>
                     )}
                     <div className="lg:col-span-1 md:col-span-2">
                         <Label htmlFor="speciality">Speciality</Label>

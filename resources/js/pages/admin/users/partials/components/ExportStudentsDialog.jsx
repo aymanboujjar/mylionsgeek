@@ -8,6 +8,8 @@ const DEFAULT_EXPORT_FIELDS = {
     email: true,
     cin: true,
     phone: false,
+    gender: false,
+    has_handicap: false,
     formation: true,
     access_studio: false,
     access_cowork: false,

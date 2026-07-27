@@ -15,6 +15,7 @@ const defaultFilters = {
     status: '',
     date: '',
     field: null,
+    gender: '',
 };
 
 const Users = ({ users, trainings }) => {
@@ -82,6 +83,10 @@ const Users = ({ users, trainings }) => {
             .filter((user) => {
                 if (!statusFilter) return true;
                 return (user.status || '').toLowerCase() === statusFilter;
+            })
+            .filter((user) => {
+                if (!filters.gender) return true;
+                return (user.gender || '') === filters.gender;
             })
             .sort((a, b) => {
                 if (filters.date === 'oldest') {

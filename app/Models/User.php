@@ -35,6 +35,8 @@ class User extends Authenticatable
         'role',
         'phone',
         'cin',
+        'gender',
+        'has_handicap',
         'status',
         'formation_id',
         'account_state',
