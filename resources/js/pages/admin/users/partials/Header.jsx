@@ -7,7 +7,7 @@ import { usePage } from '@inertiajs/react';
 import AddUserDialog from './components/AddUserDialog';
 import ExportStudentsDialog from './components/ExportStudentsDialog';
 
-const Header = ({ trainings, filteredUsers }) => {
+const Header = ({ trainings, filteredUsers, roles = [], statuses = [] }) => {
     const { auth } = usePage().props;
     const [isAddUserOpen, setIsAddUserOpen] = useState(false);
     const [isExportOpen, setIsExportOpen] = useState(false);
@@ -72,7 +72,14 @@ const Header = ({ trainings, filteredUsers }) => {
                         </Button>
 
                         {/* Export Dialog */}
-                        <ExportStudentsDialog open={isExportOpen} setOpen={setIsExportOpen} hiddenFields={hiddenExportFields} />
+                        <ExportStudentsDialog
+                            open={isExportOpen}
+                            setOpen={setIsExportOpen}
+                            hiddenFields={hiddenExportFields}
+                            roles={roles}
+                            statuses={statuses}
+                            trainings={trainings}
+                        />
 
                         <Button
                             className="cursor-pointer border border-[var(--color-alpha)] bg-[var(--color-alpha)] px-7 py-4 text-black hover:bg-transparent hover:text-[var(--color-alpha)]"

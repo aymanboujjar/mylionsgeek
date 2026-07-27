@@ -91,13 +91,25 @@ class UsersController extends Controller
             'access_scan' => 'access_scan',
         ];
 
-        $query = User::query();
-        if ($request->filled('role')) {
-            $query->where('role', $request->query('role'));
+        $query = User::query()
+            ->whereJsonDoesntContain('role', 'recruiter');
+
+        if ($request->filled('gender')) {
+            $query->where('gender', $request->query('gender'));
         }
+
+        if ($request->has('has_handicap') && $request->query('has_handicap') !== '') {
+            $query->where('has_handicap', (int) $request->query('has_handicap') === 1);
+        }
+
+        if ($request->filled('role')) {
+            $query->whereJsonContains('role', strtolower((string) $request->query('role')));
+        }
+
         if ($request->filled('status')) {
             $query->where('status', $request->query('status'));
         }
+
         if ($request->filled('formation_id')) {
             $query->where('formation_id', $request->query('formation_id'));
         }
@@ -107,6 +119,20 @@ class UsersController extends Controller
             'defaultFields' => ['name', 'email', 'cin'],
             'relationships' => ['formation'],
             'filename' => 'students_export_' . now()->format('Y_m_d_H_i_s'),
+            'headings' => [
+                'name' => 'Name',
+                'email' => 'Email',
+                'cin' => 'CIN',
+                'phone' => 'Phone',
+                'gender' => 'Gender',
+                'has_handicap' => 'Handicap',
+                'status' => 'Status',
+                'role' => 'Role',
+                'formation' => 'Training',
+                'access_studio' => 'Access Studio',
+                'access_cowork' => 'Access Cowork',
+                'access_scan' => 'Access Scan',
+            ],
             'transformers' => [
                 'formation' => function ($user) {
                     return optional($user->formation)->name ?? '';
@@ -124,6 +150,20 @@ class UsersController extends Controller
                     }
 
                     return ((int) $user->has_handicap === 1) ? 'Oui' : 'Non';
+                },
+                'role' => function ($user) {
+                    $roles = is_array($user->role) ? $user->role : array_filter([(string) $user->role]);
+
+                    return collect($roles)
+                        ->filter()
+                        ->map(function ($role) {
+                            $normalized = strtolower((string) $role);
+
+                            return $normalized === 'studio_responsable'
+                                ? 'Responsable Studio'
+                                : ucfirst(str_replace('_', ' ', $normalized));
+                        })
+                        ->implode(', ');
                 },
                 'access_studio' => function ($user) {
                     return (string) $user->access_studio === '1' || $user->access_studio === 1 ? 'Yes' : 'No';
