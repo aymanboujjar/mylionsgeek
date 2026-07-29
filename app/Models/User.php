@@ -38,6 +38,7 @@ class User extends Authenticatable
         'gender',
         'has_handicap',
         'status',
+        'program_status',
         'formation_id',
         'account_state',
         'image',

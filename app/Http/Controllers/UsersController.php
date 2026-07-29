@@ -84,6 +84,7 @@ class UsersController extends Controller
             'gender' => 'gender',
             'has_handicap' => 'has_handicap',
             'status' => 'status',
+            'program_status' => 'program_status',
             'role' => 'role',
             'formation' => 'formation',
             'access_studio' => 'access_studio',
@@ -124,6 +125,15 @@ class UsersController extends Controller
                     }
 
                     return ((int) $user->has_handicap === 1) ? 'Oui' : 'Non';
+                },
+                'program_status' => function ($user) {
+                    return match ($user->program_status) {
+                        'active' => 'Active',
+                        'laureate' => 'Laureate',
+                        'alumni' => 'Alumni',
+                        'left' => 'Left',
+                        default => '',
+                    };
                 },
                 'access_studio' => function ($user) {
                     return (string) $user->access_studio === '1' || $user->access_studio === 1 ? 'Yes' : 'No';
@@ -724,6 +734,7 @@ class UsersController extends Controller
             'gender' => $user->gender,
             'has_handicap' => $user->has_handicap,
             'status' => $user->status,
+            'program_status' => $user->program_status,
             'formation_id' => $user->formation_id,
             'image' => $user->image,
             'cover' => $user->cover,
@@ -1051,6 +1062,7 @@ class UsersController extends Controller
             'cin' => 'nullable|string',
             'gender' => 'nullable|in:male,female',
             'has_handicap' => 'nullable|in:0,1',
+            'program_status' => 'nullable|in:active,laureate,alumni,left',
             'speciality' => 'nullable|string|max:255',
             'image' => 'nullable|image',
             'cover' => 'nullable|image', // <-- allow cover image
@@ -1060,9 +1072,9 @@ class UsersController extends Controller
             'access_scan' => 'nullable|integer|in:0,1',
         ]);
 
-        // Gender / handicap: staff-only; allow clearing via empty string
+        // Gender / handicap / program_status: staff-only; allow clearing via empty string
         if (! $canEditOthers) {
-            unset($validated['gender'], $validated['has_handicap']);
+            unset($validated['gender'], $validated['has_handicap'], $validated['program_status']);
         } else {
             if ($request->exists('gender')) {
                 $gender = $request->input('gender');
@@ -1075,6 +1087,10 @@ class UsersController extends Controller
                 } else {
                     $validated['has_handicap'] = (int) $handicap === 1;
                 }
+            }
+            if ($request->exists('program_status')) {
+                $programStatus = $request->input('program_status');
+                $validated['program_status'] = ($programStatus === null || $programStatus === '') ? null : $programStatus;
             }
         }
 

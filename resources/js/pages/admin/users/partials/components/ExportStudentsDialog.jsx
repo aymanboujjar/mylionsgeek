@@ -10,6 +10,7 @@ const DEFAULT_EXPORT_FIELDS = {
     phone: false,
     gender: false,
     has_handicap: false,
+    program_status: false,
     formation: true,
     access_studio: false,
     access_cowork: false,

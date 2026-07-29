@@ -3,7 +3,7 @@ import { router } from '@inertiajs/react';
 import { Award, Calendar, Camera, Edit3, Github, Globe, Linkedin, Twitter } from 'lucide-react';
 import { useState } from 'react';
 import { ADMIN_USER_STATUSES } from '@/components/helpers/userStatuses';
-import { genderLabel } from '@/components/helpers/userDemographics';
+import { genderLabel, programStatusLabel } from '@/components/helpers/userDemographics';
 import EditUserModal from '../EditModal';
 import DownloadCertificateDialog, { resolveCertificateTrack } from './DownloadCertificateDialog';
 
@@ -105,6 +105,11 @@ const ProfileHeader = ({ user, trainings, roles }) => {
                                             {genderLabel(user.gender) && (
                                                 <span className="inline-flex items-center rounded-full border border-beta/20 bg-beta/5 px-3 py-1 text-xs font-semibold text-beta dark:border-light/20 dark:bg-light/5 dark:text-light">
                                                     {genderLabel(user.gender)}
+                                                </span>
+                                            )}
+                                            {programStatusLabel(user.program_status) && (
+                                                <span className="inline-flex items-center rounded-full border border-beta/20 bg-beta/5 px-3 py-1 text-xs font-semibold text-beta dark:border-light/20 dark:bg-light/5 dark:text-light">
+                                                    {programStatusLabel(user.program_status)}
                                                 </span>
                                             )}
                                         </div>

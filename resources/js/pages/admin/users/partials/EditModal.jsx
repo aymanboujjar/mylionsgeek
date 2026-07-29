@@ -9,7 +9,7 @@ import { router, usePage } from '@inertiajs/react';
 import { Briefcase, ExternalLink, Facebook, Github, ImagePlus, Instagram, Linkedin, MessageCircle, Send, Trash, Twitter, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { normalizeStatusForSelect, resolveStatusOptions } from '@/components/helpers/userStatuses';
-import { GENDER_OPTIONS, HANDICAP_OPTIONS, handicapSelectValue } from '@/components/helpers/userDemographics';
+import { GENDER_OPTIONS, HANDICAP_OPTIONS, handicapSelectValue, PROGRAM_STATUS_OPTIONS } from '@/components/helpers/userDemographics';
 import Rolegard from '../../../../components/rolegard';
 import RolesMultiSelect from './RolesMultiSelect';
 
@@ -82,6 +82,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         cin: editedUser?.cin ?? '',
         gender: editedUser?.gender || 'none',
         has_handicap: handicapSelectValue(editedUser?.has_handicap),
+        program_status: editedUser?.program_status || 'none',
         speciality: editedUser?.speciality ?? '',
         image: editedUser?.image || null,
         resumeFile: null,
@@ -128,6 +129,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                 cin: editedUser.cin ?? '',
                 gender: editedUser.gender || 'none',
                 has_handicap: handicapSelectValue(editedUser.has_handicap),
+                program_status: editedUser.program_status || 'none',
                 speciality: editedUser.speciality ?? '',
                 image: editedUser?.image || null,
                 resumeFile: null,
@@ -222,6 +224,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         if (canEditOthers) {
             form.append('gender', formData.gender === 'none' ? '' : formData.gender);
             form.append('has_handicap', formData.has_handicap === 'none' ? '' : formData.has_handicap);
+            form.append('program_status', formData.program_status === 'none' ? '' : formData.program_status);
         }
 
         form.append('access_studio', formData.access_studio === 'Yes' ? 1 : 0);
@@ -346,6 +349,25 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                                     <SelectContent>
                                         <SelectItem value="none">Not set</SelectItem>
                                         {HANDICAP_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="col-span-1">
+                                <Label>Program status</Label>
+                                <Select
+                                    value={formData.program_status}
+                                    onValueChange={(v) => setFormData({ ...formData, program_status: v })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select program status" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">Not set</SelectItem>
+                                        {PROGRAM_STATUS_OPTIONS.map((option) => (
                                             <SelectItem key={option.value} value={option.value}>
                                                 {option.label}
                                             </SelectItem>
