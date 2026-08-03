@@ -310,86 +310,51 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                         <Label htmlFor="email">Email</Label>
                         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
                     </div>
-                    {/* Left Column - Phone */}
-                    <div className={!showStatusField ? 'col-span-2' : 'col-span-1'}>
+                    {/* Phone */}
+                    <div className="col-span-1">
                         <Label htmlFor="phone">Phone</Label>
                         <Input id="phone" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
                     </div>
-                    {/* Right Column - CIN */}
-                    {isAdminOrStudioResponsable && (
+                    {/* After phone: Genre, Program status, Status */}
+                    {canEditOthers && (
                         <div className="col-span-1">
-                            <Label htmlFor="cin">CIN</Label>
-                            <Input id="cin" value={formData.cin || ''} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} />
+                            <Label>Genre</Label>
+                            <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select gender" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">Not set</SelectItem>
+                                    {GENDER_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     )}
                     {canEditOthers && (
-                        <>
-                            <div className="col-span-1">
-                                <Label>Genre</Label>
-                                <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select gender" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">Not set</SelectItem>
-                                        {GENDER_OPTIONS.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="col-span-1">
-                                <Label>Handicap</Label>
-                                <Select value={formData.has_handicap} onValueChange={(v) => setFormData({ ...formData, has_handicap: v })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select handicap" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">Not set</SelectItem>
-                                        {HANDICAP_OPTIONS.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="col-span-1">
-                                <Label>Program status</Label>
-                                <Select
-                                    value={formData.program_status}
-                                    onValueChange={(v) => setFormData({ ...formData, program_status: v })}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select program status" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">Not set</SelectItem>
-                                        {PROGRAM_STATUS_OPTIONS.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </>
+                        <div className="col-span-1">
+                            <Label>Program status</Label>
+                            <Select
+                                value={formData.program_status}
+                                onValueChange={(v) => setFormData({ ...formData, program_status: v })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select program status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">Not set</SelectItem>
+                                    {PROGRAM_STATUS_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
                     )}
-                    <div className="lg:col-span-1 md:col-span-2">
-                        <Label htmlFor="speciality">Speciality</Label>
-                        <Input
-                            id="speciality"
-                            value={formData.speciality}
-                            onChange={(e) => setFormData({ ...formData, speciality: e.target.value })}
-                            placeholder="e.g. Full stack developer, Mobile developer"
-                        />
-                        {errors.speciality && (
-                            <p className="mt-1 text-xs text-red-500">{Array.isArray(errors.speciality) ? errors.speciality[0] : errors.speciality}</p>
-                        )}
-                    </div>
-                    {/* Left Column - Status */}
                     {showStatusField && (
                         <div className="col-span-1">
                             <Label>Status</Label>
@@ -407,6 +372,42 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                             </Select>
                         </div>
                     )}
+                    {isAdminOrStudioResponsable && (
+                        <div className="col-span-1">
+                            <Label htmlFor="cin">CIN</Label>
+                            <Input id="cin" value={formData.cin || ''} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} />
+                        </div>
+                    )}
+                    {canEditOthers && (
+                        <div className="col-span-1">
+                            <Label>Handicap</Label>
+                            <Select value={formData.has_handicap} onValueChange={(v) => setFormData({ ...formData, has_handicap: v })}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select handicap" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">Not set</SelectItem>
+                                    {HANDICAP_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    <div className="lg:col-span-1 md:col-span-2">
+                        <Label htmlFor="speciality">Speciality</Label>
+                        <Input
+                            id="speciality"
+                            value={formData.speciality}
+                            onChange={(e) => setFormData({ ...formData, speciality: e.target.value })}
+                            placeholder="e.g. Full stack developer, Mobile developer"
+                        />
+                        {errors.speciality && (
+                            <p className="mt-1 text-xs text-red-500">{Array.isArray(errors.speciality) ? errors.speciality[0] : errors.speciality}</p>
+                        )}
+                    </div>
                     <div className="col-span-1">
                         <Label htmlFor="resume" className="mb-2 flex items-center gap-2">
                             CV (PDF or Word)
