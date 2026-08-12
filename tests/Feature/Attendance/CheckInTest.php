@@ -36,6 +36,7 @@ beforeEach(function () {
         $table->string('end_time')->nullable();
         $table->integer('user_id')->nullable();
         $table->string('promo')->nullable();
+        $table->boolean('is_active')->default(false);
         $table->timestamps();
     });
 
@@ -129,8 +130,8 @@ test('check-in saves present during the present window', function () {
             'status' => 'present',
             'row' => [
                 'morning' => 'present',
-                'lunch' => 'absent',
-                'evening' => 'absent',
+                'lunch' => 'pending',
+                'evening' => 'pending',
             ],
         ]);
 
@@ -152,8 +153,8 @@ test('check-in saves late after the present window', function () {
             'status' => 'late',
             'row' => [
                 'morning' => 'late',
-                'lunch' => 'absent',
-                'evening' => 'absent',
+                'lunch' => 'pending',
+                'evening' => 'pending',
             ],
         ]);
 });
@@ -202,8 +203,8 @@ test('check-in for an already marked slot returns 409 with no database writes', 
         'attendance_id' => $attendance->id,
         'attendance_day' => Carbon::now()->toDateString(),
         'morning' => 'present',
-        'lunch' => 'absent',
-        'evening' => 'absent',
+        'lunch' => 'pending',
+        'evening' => 'pending',
     ]);
 
     $countBefore = AttendanceListe::count();
@@ -213,6 +214,34 @@ test('check-in for an already marked slot returns 409 with no database writes', 
         ->assertJson(['message' => "You've already marked attendance for this slot."]);
 
     expect(AttendanceListe::count())->toBe($countBefore);
+});
+
+test('coach absent without notes blocks student check-in with 409', function () {
+    freezeCheckInTime('09:40:00');
+
+    $student = createCheckInStudent();
+    $attendance = Attendance::create([
+        'formation_id' => $this->formation->id,
+        'attendance_day' => Carbon::now()->toDateString(),
+        'staff_name' => 'Coach',
+    ]);
+    AttendanceListe::create([
+        'user_id' => $student->id,
+        'attendance_id' => $attendance->id,
+        'attendance_day' => Carbon::now()->toDateString(),
+        'morning' => 'absent',
+        'lunch' => 'pending',
+        'evening' => 'pending',
+    ]);
+
+    $countBefore = AttendanceListe::count();
+
+    postCheckIn($this, $student, '203.0.113.1')
+        ->assertStatus(409)
+        ->assertJson(['message' => "You've already marked attendance for this slot."]);
+
+    expect(AttendanceListe::count())->toBe($countBefore);
+    expect(AttendanceListe::first()->morning)->toBe('absent');
 });
 
 test('later check-in preserves an earlier marked slot', function () {
@@ -240,7 +269,24 @@ test('later check-in preserves an earlier marked slot', function () {
             'row' => [
                 'morning' => 'present',
                 'lunch' => 'present',
-                'evening' => 'absent',
+                'evening' => 'pending',
+            ],
+        ]);
+});
+
+test('lunch-only check-in finalizes morning as absent and leaves evening pending', function () {
+    freezeCheckInTime('11:35:00');
+
+    $student = createCheckInStudent();
+
+    postCheckIn($this, $student, '203.0.113.1')
+        ->assertOk()
+        ->assertJson([
+            'slot' => 'lunch',
+            'row' => [
+                'morning' => 'absent',
+                'lunch' => 'present',
+                'evening' => 'pending',
             ],
         ]);
 });

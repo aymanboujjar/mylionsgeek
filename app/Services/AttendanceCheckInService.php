@@ -75,6 +75,8 @@ class AttendanceCheckInService
             }
         }
 
+        $alreadyMarked = $this->slotService->markedSlots($existingSlots);
+
         return [
             'attendance_day' => $attendanceDay,
             'current_slot' => $currentSlot,
@@ -83,7 +85,7 @@ class AttendanceCheckInService
                 ? $this->slotService->minutesIntoSlot($now, $currentSlot)
                 : null,
             'present_minutes' => (int) config('attendance.present_minutes', 15),
-            'already_marked_slots' => $this->slotService->markedSlots($existingSlots),
+            'already_marked_slots' => $alreadyMarked,
             'label_key' => $this->slotService->labelKey($now, $currentSlot, $phase),
             'next_slot' => $this->slotService->nextSlot($now),
             'row' => $row,

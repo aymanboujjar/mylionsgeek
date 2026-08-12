@@ -16,6 +16,7 @@ class DisciplineService
      */
     private const WEIGHT_MAP = [
         'present' => 1.0,
+        'pending' => 1.0, // unresolved — no score loss until finalized
         'excused' => 0.9,
         'late' => 0.7,
         'absent' => 0.0,

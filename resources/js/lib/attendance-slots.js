@@ -5,8 +5,27 @@ export const SLOT_LABELS = {
     evening: 'Lunch',
 };
 
+/**
+ * Slot windows in minutes-from-midnight — keep in sync with config/attendance.php.
+ */
+export const SLOT_WINDOWS = {
+    morning: { opens: 9 * 60 + 30, closes: 11 * 60 },
+    lunch: { opens: 11 * 60 + 30, closes: 13 * 60 },
+    evening: { opens: 14 * 60, closes: 17 * 60 },
+};
+
+export const SLOT_ORDER = ['morning', 'lunch', 'evening'];
+
 export function slotLabel(slot) {
     return SLOT_LABELS[slot] ?? slot;
+}
+
+/**
+ * Default value for a slot with no DB data on the selected calendar date.
+ * Always pending — absent is only shown after finalize/check-in/coach actually writes it.
+ */
+export function defaultUnresolvedSlotValue() {
+    return 'pending';
 }
 
 /**
@@ -40,20 +59,33 @@ export function reminderDismissKey(slotStatus) {
 }
 
 /**
+ * Safe read of already_marked_slots — missing/partial payloads default to [].
+ *
+ * @param {{ already_marked_slots?: string[] } | null | undefined} slotStatus
+ * @returns {string[]}
+ */
+export function alreadyMarkedSlots(slotStatus) {
+    const slots = slotStatus?.already_marked_slots;
+
+    return Array.isArray(slots) ? slots : [];
+}
+
+/**
  * Home feed banner: show for the entire active slot (present and late).
+ * Relies on already_marked_slots (pending/null are unmarked).
  */
 export function shouldShowHomeReminderBanner(slotStatus) {
     if (!slotStatus) {
         return false;
     }
 
-    const { current_slot, phase, already_marked_slots } = slotStatus;
+    const { current_slot, phase } = slotStatus;
 
     if (phase !== 'active' || !current_slot) {
         return false;
     }
 
-    return !already_marked_slots.includes(current_slot);
+    return !alreadyMarkedSlots(slotStatus).includes(current_slot);
 }
 
 /**

@@ -35,6 +35,7 @@ beforeEach(function () {
         $table->string('end_time')->nullable();
         $table->integer('user_id')->nullable();
         $table->string('promo')->nullable();
+        $table->boolean('is_active')->default(false);
         $table->timestamps();
     });
 

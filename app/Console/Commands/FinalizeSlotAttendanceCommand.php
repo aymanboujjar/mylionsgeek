@@ -2,18 +2,18 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\SendSlotAttendanceReminders;
+use App\Jobs\FinalizeSlotAttendance;
 use App\Services\AttendanceSlotService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
-class SendSlotAttendanceReminder extends Command
+class FinalizeSlotAttendanceCommand extends Command
 {
-    protected $signature = 'attendance:send-slot-reminder
-                            {--slot= : Slot to remind (morning|lunch|evening); defaults to current active slot}
+    protected $signature = 'attendance:finalize-closed-slots
+                            {--slot= : Force a specific slot (morning|lunch|evening); defaults to latest closed slot}
                             {--date= : Attendance day Y-m-d; defaults to today}';
 
-    protected $description = 'Dispatch attendance reminders for a slot (captured at dispatch — safe if the queue runs late)';
+    protected $description = 'Finalize unresolved attendance slots closed as of now (runs synchronously)';
 
     public function handle(AttendanceSlotService $slotService): int
     {
@@ -29,18 +29,20 @@ class SendSlotAttendanceReminder extends Command
                 return self::FAILURE;
             }
         } else {
-            $slot = $slotService->currentSlot($now);
+            $isPastDate = $date < $now->toDateString();
+            $slot = $slotService->latestClosedSlot($now, $isPastDate);
 
             if ($slot === null) {
-                $this->warn('No active attendance slot right now — nothing to dispatch.');
+                $this->warn('No attendance slots have closed yet today — nothing to finalize.');
 
                 return self::SUCCESS;
             }
         }
 
-        SendSlotAttendanceReminders::dispatch($slot, $date);
+        // Sync: pure DB work — no queue. Per-student isolation lives in the job handle loop.
+        FinalizeSlotAttendance::dispatchSync($slot, $date);
 
-        $this->info("Dispatched attendance reminders for slot [{$slot}] on [{$date}]");
+        $this->info("Finalized attendance for slot [{$slot}] on [{$date}]");
 
         return self::SUCCESS;
     }

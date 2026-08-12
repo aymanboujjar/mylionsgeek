@@ -3,12 +3,10 @@
 namespace App\Jobs;
 
 use App\Models\AttendanceReminderNotification;
-use App\Models\Formation;
-use App\Models\User;
+use App\Services\ActiveFormationEnrollmentService;
 use App\Services\AttendanceCheckInService;
 use App\Services\AttendanceSlotService;
 use App\Services\ExpoPushNotificationService;
-use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -16,9 +14,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
 
 class SendSlotAttendanceReminders implements ShouldQueue
 {
@@ -30,69 +26,62 @@ class SendSlotAttendanceReminders implements ShouldQueue
         'evening' => 'Lunch',
     ];
 
+    /**
+     * @param  string  $slot  morning|lunch|evening — captured at dispatch time
+     * @param  string  $date  Y-m-d — captured at dispatch time
+     */
+    public function __construct(
+        public string $slot,
+        public string $date,
+    ) {}
+
     public function handle(
         AttendanceSlotService $slotService,
         AttendanceCheckInService $checkInService,
         ExpoPushNotificationService $pushService,
+        ActiveFormationEnrollmentService $enrollmentService,
     ): void {
-        $now = Carbon::now();
-        $slot = $slotService->currentSlot($now);
-
-        if ($slot === null) {
-            Log::info('SendSlotAttendanceReminders: no active slot at this time', [
-                'now' => $now->toDateTimeString(),
+        if (! in_array($this->slot, $slotService->slotOrder(), true)) {
+            Log::warning('SendSlotAttendanceReminders: unknown slot', [
+                'slot' => $this->slot,
+                'date' => $this->date,
             ]);
 
             return;
         }
 
-        $activeFormationIds = Formation::query()
-            ->where('is_active', true)
-            ->pluck('id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
+        $activeFormationIds = $enrollmentService->activeFormationIds();
 
         if ($activeFormationIds === []) {
-            Log::info('SendSlotAttendanceReminders: no active formations', ['slot' => $slot]);
+            Log::info('SendSlotAttendanceReminders: no active formations', [
+                'slot' => $this->slot,
+                'date' => $this->date,
+            ]);
 
             return;
         }
 
-        $today = $now->toDateString();
-        $activeFormationLookup = array_fill_keys($activeFormationIds, true);
         $recipients = [];
 
-        $query = User::query()->where(function ($builder) use ($activeFormationIds) {
-            $builder->whereIn('formation_id', $activeFormationIds);
-
-            if (Schema::hasTable('formation_user')) {
-                $builder->orWhereIn('id', DB::table('formation_user')
-                    ->whereIn('formation_id', $activeFormationIds)
-                    ->select('user_id'));
-            }
-        });
-
-        foreach ($query->cursor() as $user) {
-            $formationId = $this->resolveActiveFormationId($user, $activeFormationLookup);
-            if ($formationId === null) {
-                continue;
-            }
+        foreach ($enrollmentService->eachEnrolledStudent($activeFormationIds) as $candidate) {
+            $user = $candidate['user'];
+            $formationId = $candidate['formation_id'];
 
             if (AttendanceReminderNotification::query()
                 ->where('user_id', $user->id)
-                ->whereDate('date', $today)
-                ->where('slot', $slot)
+                ->whereDate('date', $this->date)
+                ->where('slot', $this->slot)
                 ->exists()) {
                 continue;
             }
 
             try {
-                $slotStatus = $checkInService->slotStatus($user, $formationId, $today);
+                $slotStatus = $checkInService->slotStatus($user, $formationId, $this->date);
             } catch (HttpResponseException) {
                 continue;
             }
 
-            if (in_array($slot, $slotStatus['already_marked_slots'] ?? [], true)) {
+            if (in_array($this->slot, $slotStatus['already_marked_slots'] ?? [], true)) {
                 continue;
             }
 
@@ -108,25 +97,28 @@ class SendSlotAttendanceReminders implements ShouldQueue
         }
 
         if ($recipients === []) {
-            Log::info('SendSlotAttendanceReminders: no recipients', ['slot' => $slot, 'date' => $today]);
+            Log::info('SendSlotAttendanceReminders: no recipients', [
+                'slot' => $this->slot,
+                'date' => $this->date,
+            ]);
 
             return;
         }
 
-        $slotLabel = self::SLOT_LABELS[$slot] ?? $slot;
+        $slotLabel = self::SLOT_LABELS[$this->slot] ?? $this->slot;
         $title = 'Attendance Reminder';
         $body = "Check in for {$slotLabel}";
         $tokens = array_values(array_unique(array_column($recipients, 'token')));
 
         $sent = $pushService->send($tokens, $title, $body, [
             'type' => 'attendance_reminder',
-            'slot' => $slot,
+            'slot' => $this->slot,
         ]);
 
         if (! $sent) {
             Log::warning('SendSlotAttendanceReminders: Expo push batch failed', [
-                'slot' => $slot,
-                'date' => $today,
+                'slot' => $this->slot,
+                'date' => $this->date,
                 'recipient_count' => count($recipients),
             ]);
 
@@ -137,8 +129,8 @@ class SendSlotAttendanceReminders implements ShouldQueue
             try {
                 AttendanceReminderNotification::create([
                     'user_id' => $recipient['user_id'],
-                    'date' => $today,
-                    'slot' => $slot,
+                    'date' => $this->date,
+                    'slot' => $this->slot,
                     'message_notification' => $body,
                     'path' => '/students/attendance',
                 ]);
@@ -149,23 +141,9 @@ class SendSlotAttendanceReminders implements ShouldQueue
         }
 
         Log::info('SendSlotAttendanceReminders: completed', [
-            'slot' => $slot,
-            'date' => $today,
+            'slot' => $this->slot,
+            'date' => $this->date,
             'recipient_count' => count($recipients),
         ]);
-    }
-
-    /**
-     * @param  array<int, true>  $activeFormationLookup
-     */
-    private function resolveActiveFormationId(User $user, array $activeFormationLookup): ?int
-    {
-        foreach ($user->resolvedFormationIds() as $formationId) {
-            if (isset($activeFormationLookup[$formationId])) {
-                return $formationId;
-            }
-        }
-
-        return null;
     }
 }

@@ -26,7 +26,7 @@ export default function UpdateTraining({ training, coaches }) {
     const userRoles = Array.isArray(page.props?.auth?.user?.role) ? page.props.auth.user.role : [page.props?.auth?.user?.role].filter(Boolean);
     const canManageCertificateTemplate = userRoles.includes('admin') || userRoles.includes('super_admin');
 
-    const { data, setData, put, processing, reset, errors, transform } = useForm(buildTrainingFormData(training));
+    const { data, setData, setDefaults, put, processing, reset, errors, transform } = useForm(buildTrainingFormData(training));
 
     // FormData drops false booleans; send explicit 0/1
     transform((form) => ({
@@ -35,7 +35,9 @@ export default function UpdateTraining({ training, coaches }) {
     }));
 
     const syncFormFromTraining = () => {
-        setData(buildTrainingFormData(training));
+        const payload = buildTrainingFormData(training);
+        setDefaults(payload);
+        setData(payload);
     };
 
     const handleOpenChange = (newOpen) => {

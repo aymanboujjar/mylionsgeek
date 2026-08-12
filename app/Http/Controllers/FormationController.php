@@ -21,6 +21,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -258,9 +259,9 @@ class FormationController extends Controller
             'attendance.*.attendance_id' => 'nullable|integer|exists:attendances,id',
             'attendance.*.user_id' => 'required|exists:users,id',
             'attendance.*.attendance_day' => 'required|date',
-            'attendance.*.morning' => 'nullable|string|in:present,absent,late,excused',
-            'attendance.*.lunch' => 'nullable|string|in:present,absent,late,excused',
-            'attendance.*.evening' => 'nullable|string|in:present,absent,late,excused',
+            'attendance.*.morning' => 'nullable|string|in:present,absent,late,excused,pending',
+            'attendance.*.lunch' => 'nullable|string|in:present,absent,late,excused,pending',
+            'attendance.*.evening' => 'nullable|string|in:present,absent,late,excused,pending',
             'attendance.*.note' => 'nullable|string',
         ]);
 
@@ -442,11 +443,20 @@ class FormationController extends Controller
         return back()->with('success', 'Formation updated successfully!');
     }
 
-    // Delete formation
+    // Delete formation — unassign enrolled students first (users.formation_id FK is ON DELETE NO ACTION)
     public function destroy($id)
     {
         $formation = Formation::findOrFail($id);
-        $formation->delete();
+
+        DB::transaction(function () use ($formation) {
+            User::where('formation_id', $formation->id)->update(['formation_id' => null]);
+
+            if (Schema::hasTable('formation_user')) {
+                DB::table('formation_user')->where('formation_id', $formation->id)->delete();
+            }
+
+            $formation->delete();
+        });
 
         return back()->with('success', 'Formation deleted successfully!');
     }

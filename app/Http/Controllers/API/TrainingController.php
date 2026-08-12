@@ -635,7 +635,7 @@ class TrainingController extends Controller
         if ($s === '' || str_starts_with($s, 'present')) {
             return 'present';
         }
-        if (in_array($s, ['absent', 'late', 'excused'], true)) {
+        if (in_array($s, ['absent', 'late', 'excused', 'pending'], true)) {
             return $s;
         }
 
@@ -654,9 +654,9 @@ class TrainingController extends Controller
             'attendance.*.attendance_id' => 'required|integer|exists:attendances,id',
             'attendance.*.user_id' => 'required|exists:users,id',
             'attendance.*.attendance_day' => 'required|date',
-            'attendance.*.morning' => 'nullable|string|in:present,absent,late,excused',
-            'attendance.*.lunch' => 'nullable|string|in:present,absent,late,excused',
-            'attendance.*.evening' => 'nullable|string|in:present,absent,late,excused',
+            'attendance.*.morning' => 'nullable|string|in:present,absent,late,excused,pending',
+            'attendance.*.lunch' => 'nullable|string|in:present,absent,late,excused,pending',
+            'attendance.*.evening' => 'nullable|string|in:present,absent,late,excused,pending',
             'attendance.*.note' => 'nullable|string',
         ]);
 

@@ -81,4 +81,12 @@ class StudentAttendanceController extends Controller
             'slot_status' => $checkInService->slotStatus($user, $formation['id'], $attendanceDay),
         ]);
     }
+
+    /**
+     * Lightweight probe for the home banner — school.network middleware supplies 403/503.
+     */
+    public function networkCheck()
+    {
+        return response()->json(['ok' => true]);
+    }
 }

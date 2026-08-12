@@ -6,6 +6,7 @@ import AppLayout from '@/layouts/app-layout';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import FullCalendar from '@fullcalendar/react';
+import { defaultUnresolvedSlotValue, SLOT_ORDER } from '@/lib/attendance-slots';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     Award,
@@ -85,6 +86,7 @@ export default function Show({ training, usersNull, courses = [] }) {
         if (v === 'absent') return 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400';
         if (v === 'late') return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-alpha';
         if (v === 'excused') return 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400';
+        if (v === 'pending') return 'border-gray-400/40 bg-gray-400/10 text-gray-600 dark:text-gray-400';
         return '';
     };
 
@@ -204,7 +206,7 @@ export default function Show({ training, usersNull, courses = [] }) {
             students.forEach((s) => {
                 const key = `${dateStr}-${s.id}`;
                 const saved = byUserId.get(s.id);
-                const base = getDefaultSlots(s);
+                const base = getDefaultSlots(s, dateStr);
                 const studentMarkedSlots = Array.isArray(saved?.student_marked_slots) ? saved.student_marked_slots : [];
 
                 initialized[key] = {
@@ -327,12 +329,17 @@ export default function Show({ training, usersNull, courses = [] }) {
         setShowWinnerModal(false);
     };
 
-    const getDefaultSlots = (student) => {
+    const getDefaultSlots = (student, dateStr = selectedDate) => {
         const status = String(student?.status || '').toLowerCase();
         if (status === 'left') {
             return { morning: 'absent', lunch: 'absent', evening: 'absent', notes: [] };
         }
-        return { morning: 'present', lunch: 'present', evening: 'present', notes: [] };
+
+        const slots = { notes: [] };
+        for (const slot of SLOT_ORDER) {
+            slots[slot] = defaultUnresolvedSlotValue();
+        }
+        return slots;
     };
 
     const isStudentCheckInNote = (note) => /^Check-in at \d{2}:\d{2}$/.test(String(note ?? '').trim());
@@ -341,8 +348,9 @@ export default function Show({ training, usersNull, courses = [] }) {
         if (studentMarkedSlots.includes(slot)) {
             return saved?.[slot] ?? base[slot];
         }
-        if (saved?.[slot]) {
-            return saved[slot];
+        const savedValue = saved?.[slot];
+        if (savedValue !== null && savedValue !== undefined && String(savedValue).trim() !== '') {
+            return savedValue;
         }
         return base[slot];
     };
@@ -350,7 +358,7 @@ export default function Show({ training, usersNull, courses = [] }) {
     const isStudentMarkedSlot = (currentData, slot) => Array.isArray(currentData?.studentMarkedSlots) && currentData.studentMarkedSlots.includes(slot);
 
     const renderSlotSelect = (studentKey, currentData, slot, placeholder) => {
-        const value = currentData[slot] ?? 'present';
+        const value = currentData[slot] ?? defaultUnresolvedSlotValue();
         const studentMarked = isStudentMarkedSlot(currentData, slot);
 
         return (
@@ -379,6 +387,7 @@ export default function Show({ training, usersNull, courses = [] }) {
                         <SelectValue placeholder={placeholder} />
                     </SelectTrigger>
                     <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
                         <SelectItem value="present">Present</SelectItem>
                         <SelectItem value="absent">Absent</SelectItem>
                         <SelectItem value="late">Late</SelectItem>
@@ -1031,12 +1040,7 @@ export default function Show({ training, usersNull, courses = [] }) {
                                 <div className="block space-y-3 p-3 pr-4 md:hidden">
                                     {students.map((student) => {
                                         const studentKey = `${selectedDate}-${student.id}`;
-                                        const currentData = attendanceData[studentKey] || {
-                                            morning: 'present',
-                                            lunch: 'present',
-                                            evening: 'present',
-                                            notes: '',
-                                        };
+                                        const currentData = attendanceData[studentKey] || getDefaultSlots(student);
                                         return (
                                             <div key={student.id} className="rounded-lg border border-alpha/20 p-3">
                                                 <div className="mb-3 flex items-center gap-3">
@@ -1121,12 +1125,7 @@ export default function Show({ training, usersNull, courses = [] }) {
                                             <tbody className="divide-y divide-alpha/10">
                                                 {students.map((student) => {
                                                     const studentKey = `${selectedDate}-${student.id}`;
-                                                    const currentData = attendanceData[studentKey] || {
-                                                        morning: 'present',
-                                                        lunch: 'present',
-                                                        evening: 'present',
-                                                        notes: '',
-                                                    };
+                                                    const currentData = attendanceData[studentKey] || getDefaultSlots(student);
                                                     return (
                                                         <tr key={student.id} className="transition-colors hover:bg-accent/30">
                                                             <td className="px-4 py-3">

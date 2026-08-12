@@ -27,7 +27,7 @@ test('student marked slots include both check-ins when multiple notes exist', fu
     expect($marked)->toBe(['morning', 'lunch']);
 });
 
-test('absent filler slots are not student marked when only morning was checked in', function () {
+test('past absent and future pending slots are not student marked when only morning was checked in', function () {
     $service = new StudentCheckInSlotService(new AttendanceSlotService);
 
     $marked = $service->studentMarkedSlots(

@@ -26,8 +26,8 @@ class StudentCheckInSlotService
      * 1. Map each check-in note time to the slot active at that instant (AttendanceSlotService).
      * 2. Times that fall in a gap or outside school hours do not mark any slot (no row-wide fallback).
      *
-     * Absent values are NOT student-marked: buildCheckInSlots writes absent as a placeholder for
-     * slots the student did not check into, and those remain coach-editable on save.
+     * Past unresolved slots become finalized 'absent'; future slots stay 'pending'. Neither is
+     * student-marked — only slots whose check-in note time maps into that slot window are.
      *
      * Legacy rows without check-in notes are never student-marked (coach-editable).
      *

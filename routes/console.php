@@ -32,3 +32,10 @@ Schedule::command('attendance:send-slot-reminder')
     ->weekdays()
     ->dailyAt('14:00')
     ->timezone($scheduleTimezone);
+
+// Once after the last slot closes — finalizes all unresolved slots through evening (sync)
+Schedule::command('attendance:finalize-closed-slots')
+    ->weekdays()
+    ->dailyAt('17:05')
+    ->timezone($scheduleTimezone)
+    ->withoutOverlapping();

@@ -35,6 +35,7 @@ beforeEach(function () {
         $table->string('end_time')->nullable();
         $table->integer('user_id')->nullable();
         $table->string('promo')->nullable();
+        $table->boolean('is_active')->default(false);
         $table->timestamps();
     });
 
@@ -205,6 +206,39 @@ test('empty whitelist returns 503 on web attendance page', function () {
         ->assertJson(['message' => 'Attendance network is not configured.']);
 });
 
+test('web network-check returns ok for student on allowed IP', function () {
+    $student = createWebStudent();
+
+    $this->actingAs($student)
+        ->withServerVariables(['REMOTE_ADDR' => '203.0.113.1'])
+        ->getJson('/students/attendance/network-check')
+        ->assertOk()
+        ->assertJson(['ok' => true]);
+});
+
+test('web network-check returns forbidden for student off-network', function () {
+    $student = createWebStudent();
+
+    $this->actingAs($student)
+        ->withServerVariables(['REMOTE_ADDR' => '198.51.100.99'])
+        ->getJson('/students/attendance/network-check')
+        ->assertForbidden()
+        ->assertJson([
+            'message' => 'You must be connected to the school WiFi to check in.',
+        ]);
+});
+
+test('web network-check returns 503 when whitelist is empty', function () {
+    config(['attendance.allowed_ips' => []]);
+    $student = createWebStudent();
+
+    $this->actingAs($student)
+        ->withServerVariables(['REMOTE_ADDR' => '203.0.113.1'])
+        ->getJson('/students/attendance/network-check')
+        ->assertStatus(503)
+        ->assertJson(['message' => 'Attendance network is not configured.']);
+});
+
 test('web check-in saves present during the present window', function () {
     freezeWebTime('09:42:00');
     $student = createWebStudent();
@@ -217,8 +251,8 @@ test('web check-in saves present during the present window', function () {
             'status' => 'present',
             'row' => [
                 'morning' => 'present',
-                'lunch' => 'absent',
-                'evening' => 'absent',
+                'lunch' => 'pending',
+                'evening' => 'pending',
             ],
         ]);
 
