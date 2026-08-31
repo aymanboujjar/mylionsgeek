@@ -1055,7 +1055,7 @@ class UsersController extends Controller
             'name' => 'nullable|string',
             'email' => 'nullable|email|unique:users,email,' . $user->id,
             'roles' => 'nullable|array',
-            'roles.*' => 'string',
+            'roles.*' => 'string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
             'status' => 'nullable|string',
             'formation_id' => 'nullable|integer|exists:formations,id',
             'phone' => 'nullable|string',
@@ -1123,15 +1123,19 @@ class UsersController extends Controller
             $validated['resume'] = $user->storeResumeFromUpload($request->file('resume'));
         }
 
-        // Map roles (array) to 'role' JSON column, lowercased
-        if ($request->has('roles')) {
+        // Map roles (array) to 'role' JSON column, lowercased.
+        // SECURITY: only privileged actors may change roles. A self-updating student
+        // must never be able to escalate their own role. Without this gate the endpoint
+        // is a broken-access-control / mass-assignment privilege escalation (a student
+        // can POST roles[]=admin to /students/update/{their-own-id} and become admin).
+        unset($validated['roles'], $validated['role']);
+        if ($request->has('roles') && $canEditOthers) {
             $roles = $request->input('roles');
             if (is_array($roles)) {
                 $validated['role'] = array_values(array_map(function ($r) {
                     return strtolower((string) $r);
                 }, $roles));
             }
-            unset($validated['roles']);
         }
 
         $isSelfUpdate = (int) $actor->id === (int) $user->id;

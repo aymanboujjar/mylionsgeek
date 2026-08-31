@@ -15,8 +15,6 @@ return new class extends Migration
 			$table->integer('computer_id');
 			$table->string('start');
 			$table->string('end');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

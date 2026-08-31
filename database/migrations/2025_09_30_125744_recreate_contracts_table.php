@@ -15,8 +15,6 @@ return new class extends Migration
 			$table->integer('reservation_id')->nullable()->default('NULL');
 			$table->string('contract');
 			$table->string('type');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

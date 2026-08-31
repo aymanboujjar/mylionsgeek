@@ -20,8 +20,6 @@ return new class extends Migration
 			$table->integer('causer_id')->nullable()->default('NULL');
 			$table->string('properties')->nullable()->default('NULL');
 			$table->string('batch_uuid')->nullable()->default('NULL');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

@@ -11,6 +11,7 @@ return new class extends Migration
         if (!Schema::hasTable('computers')) {
             Schema::create('computers', function (Blueprint $table) {
 			$table->id();
+			$table->uuid('uuid')->nullable()->unique();
 			$table->string('reference');
 			$table->string('cpu');
 			$table->string('gpu');
@@ -19,8 +20,6 @@ return new class extends Migration
 			$table->string('start')->nullable()->default('NULL');
 			$table->string('end')->nullable()->default('NULL');
 			$table->string('mark');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

@@ -468,7 +468,7 @@ class FormationController extends Controller
             'user_ids' => 'required|array|min:1',
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
-            'roles.*' => 'nullable|string',
+            'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
             'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing,Certified',
         ]);
 

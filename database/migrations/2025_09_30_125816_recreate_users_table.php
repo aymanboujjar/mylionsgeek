@@ -29,8 +29,6 @@ return new class extends Migration
 			$table->integer('account_state')->default('0');
 			$table->integer('darkmode')->default('0');
 			$table->string('remember_token')->nullable()->default('NULL');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->string('role')->default('student');
 			$table->string('wakatime_api_key')->nullable();
 			$table->integer('previous_week_rank')->nullable();

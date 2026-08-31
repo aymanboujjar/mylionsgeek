@@ -16,8 +16,6 @@ return new class extends Migration
 			$table->integer('moderateur');
 			$table->integer('coach');
 			$table->integer('user_id');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

@@ -14,8 +14,6 @@ return new class extends Migration
 			$table->integer('user_id');
 			$table->integer('code');
 			$table->string('expiration');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

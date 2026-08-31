@@ -17,8 +17,6 @@ return new class extends Migration
 			$table->string('morning')->default('Present');
 			$table->string('lunch')->default('Present');
 			$table->string('evening')->default('Present');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

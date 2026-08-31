@@ -12,8 +12,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            //
-            $table->json('role')->default(json_encode(['student']));
+            if (Schema::hasColumn('users', 'role')) {
+                $table->json('role')->default(json_encode(['student']))->change();
+            } else {
+                $table->json('role')->default(json_encode(['student']));
+            }
         });
     }
 

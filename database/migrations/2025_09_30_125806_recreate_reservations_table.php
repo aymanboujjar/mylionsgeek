@@ -24,8 +24,6 @@ return new class extends Migration
 			$table->integer('start_signed')->default('0');
 			$table->integer('end_signed')->default('0');
 			$table->string('type');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

@@ -15,8 +15,6 @@ return new class extends Migration
 			$table->string('mc_document');
 			$table->string('description');
 			$table->string('author');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }
