@@ -473,7 +473,7 @@ class FormationController extends Controller
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
             'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
-            'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing,Certified',
+            'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing',
         ]);
 
         $users = User::whereIn('id', $validated['user_ids'])
@@ -665,7 +665,6 @@ class FormationController extends Controller
                 $this->storeCertificatePdf($user, $pdfStoragePath, $pdfBytes);
 
                 $certFields = [
-                    'status' => 'Certified',
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
                     'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
@@ -718,7 +717,7 @@ class FormationController extends Controller
     }
 
     /**
-     * GeekLab: generate PDFs, store them, mark students Certified, queue email jobs.
+     * GeekLab: generate PDFs, store them, mark students as laureates, queue email jobs.
      */
     public function emailGeekLabCertificates(
         Formation $training,
@@ -822,7 +821,6 @@ class FormationController extends Controller
 
                 // Certify immediately when PDF is stored and the email job is queued.
                 $user->forceFill([
-                    'status' => 'Certified',
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
                     'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),

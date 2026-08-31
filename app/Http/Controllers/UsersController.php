@@ -1144,7 +1144,9 @@ class UsersController extends Controller
                 if ($requestedStatus === 'studying') {
                     unset($validated['status']);
                 } else {
-                    $studentAllowed = ['working', 'internship', 'unemployed', 'freelancing', 'certified', 'left'];
+                    // 'certified' and 'left' are deliberately absent: those outcomes are
+                    // recorded in program_status by staff, never self-assigned.
+                    $studentAllowed = ['working', 'internship', 'unemployed', 'freelancing'];
                     if (! in_array($requestedStatus, $studentAllowed, true)) {
                         unset($validated['status']);
                     }
@@ -1152,14 +1154,18 @@ class UsersController extends Controller
             }
         }
 
-        $previousStatus = $user->status;
+        $previousProgramStatus = $user->program_status;
 
         $user->update($validated);
 
-        // When an admin manually certifies a user, reset the LinkedIn modal gate fields
-        // so the share prompt appears on their next login, and ensure a share token exists.
-        // Uses forceFill() because these fields are not in $fillable.
-        if (isset($validated['status']) && $validated['status'] === 'Certified' && $previousStatus !== 'Certified') {
+        // When staff manually marks a user as a laureate, reset the LinkedIn modal gate
+        // fields so the share prompt appears on their next login, and ensure a share
+        // token exists. Uses forceFill() because these fields are not in $fillable.
+        if (
+            isset($validated['program_status'])
+            && $validated['program_status'] === User::PROGRAM_STATUS_LAUREATE
+            && $previousProgramStatus !== User::PROGRAM_STATUS_LAUREATE
+        ) {
             $user->forceFill([
                 'linkedin_share_prompted_at' => null,
                 'linkedin_share_dismissed_at' => null,
