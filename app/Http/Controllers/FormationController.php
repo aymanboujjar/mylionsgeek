@@ -19,6 +19,7 @@ use App\Services\ProgramStatusService;
 use App\Services\StudentCheckInSlotService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -507,6 +508,34 @@ class FormationController extends Controller
     }
 
     /**
+     * Split selected students into those eligible for a certificate and warnings
+     * for those who are not.
+     *
+     * A student marked as having left the program can never be certified, even if
+     * they were somehow selected — the modal disables them, but a stale page or a
+     * hand-crafted request must not get past this.
+     *
+     * @param  Collection<int, User>  $selected
+     * @return array{0: Collection<int, User>, 1: list<array{id: mixed, name: string, reason: string}>}
+     */
+    private function excludeStudentsWhoLeft(Collection $selected): array
+    {
+        $hasLeft = fn (User $user) => $user->program_status === User::PROGRAM_STATUS_LEFT;
+
+        $warnings = $selected
+            ->filter($hasLeft)
+            ->map(fn (User $user) => [
+                'id' => $user->id,
+                'name' => (string) $user->name,
+                'reason' => 'A quitté le programme : aucun certificat possible.',
+            ])
+            ->values()
+            ->all();
+
+        return [$selected->reject($hasLeft)->values(), $warnings];
+    }
+
+    /**
      * Admin or assigned coach only.
      */
     private function canPrintCertificates(Formation $training): bool
@@ -557,12 +586,23 @@ class FormationController extends Controller
         $isGeekLab = $trackResolver->isGeekLabTraining($training->name);
         $trainingName = (string) $training->name;
 
-        $users = User::whereIn('id', $validated['user_ids'])
+        $selected = User::whereIn('id', $validated['user_ids'])
             ->where('formation_id', $training->id)
             ->get();
 
-        if ($users->isEmpty()) {
+        if ($selected->isEmpty()) {
             return $this->certificateZipErrorResponse($request, 'No valid users found for this training.', 422);
+        }
+
+        [$users, $leftWarnings] = $this->excludeStudentsWhoLeft($selected);
+
+        if ($users->isEmpty()) {
+            return $this->certificateZipErrorResponse(
+                $request,
+                'Aucun certificat généré.',
+                422,
+                ['skipped' => $leftWarnings],
+            );
         }
 
         $tmpZipPath = storage_path('app/tmp/certificates-'.$training->id.'-'.now()->format('YmdHis').'-'.Str::random(8).'.zip');
@@ -576,7 +616,7 @@ class FormationController extends Controller
         }
 
         $savedCount = 0;
-        $skipped = [];
+        $skipped = $leftWarnings;
         $usedZipNames = [];
 
         foreach ($users as $user) {
@@ -705,16 +745,27 @@ class FormationController extends Controller
         $issuedCarbon = Carbon::parse($validated['issued_date'])->startOfDay();
         $issuedDateFormatted = $issuedCarbon->format('d/m/Y');
 
-        $users = User::whereIn('id', $validated['user_ids'])
+        $selected = User::whereIn('id', $validated['user_ids'])
             ->where('formation_id', $training->id)
             ->get();
 
-        if ($users->isEmpty()) {
+        if ($selected->isEmpty()) {
             return $this->certificateZipErrorResponse($request, 'No valid users found for this training.', 422);
         }
 
+        [$users, $leftWarnings] = $this->excludeStudentsWhoLeft($selected);
+
+        if ($users->isEmpty()) {
+            return $this->certificateZipErrorResponse(
+                $request,
+                'Aucun certificat généré.',
+                422,
+                ['skipped' => $leftWarnings],
+            );
+        }
+
         $queuedCount = 0;
-        $skipped = [];
+        $skipped = $leftWarnings;
         $trainingName = (string) $training->name;
 
         foreach ($users as $user) {
