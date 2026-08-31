@@ -570,6 +570,7 @@ class FormationController extends Controller
         CertificateTrackResolver $trackResolver,
         CertificatePdfGenerator $pdfGenerator,
         GeekLabCertificateCodeAllocator $codeAllocator,
+        ProgramStatusService $programStatusService,
     ) {
         if (! $this->canPrintCertificates($training)) {
             abort(403, 'You are not allowed to print certificates for this training.');
@@ -706,6 +707,8 @@ class FormationController extends Controller
             );
         }
 
+        $this->recordCertificatePrint($training, $users, $programStatusService);
+
         return response()
             ->download($tmpZipPath, 'certificats-'.$training->id.'.zip', [
                 'Content-Type' => 'application/zip',
@@ -723,6 +726,7 @@ class FormationController extends Controller
         CertificateTrackResolver $trackResolver,
         CertificatePdfGenerator $pdfGenerator,
         GeekLabCertificateCodeAllocator $codeAllocator,
+        ProgramStatusService $programStatusService,
     ) {
         if (! $this->canPrintCertificates($training)) {
             abort(403, 'You are not allowed to print certificates for this training.');
@@ -852,11 +856,38 @@ class FormationController extends Controller
             );
         }
 
+        $this->recordCertificatePrint($training, $users, $programStatusService);
+
         return response()->json([
             'success' => true,
             'queued' => $queuedCount,
             'skipped' => $skipped,
             'message' => $queuedCount.' certificat(s) généré(s) et e-mail(s) mis en file d’attente.',
+        ]);
+    }
+
+    /**
+     * Advance the program lifecycle after a successful certificate print.
+     *
+     * Every selected student becomes a laureate. Only runs once the print itself
+     * has succeeded, so a request that generated nothing leaves the lifecycle
+     * untouched.
+     *
+     * @param  Collection<int, User>  $selected  Students selected, minus those who left.
+     */
+    private function recordCertificatePrint(
+        Formation $training,
+        Collection $selected,
+        ProgramStatusService $programStatusService,
+    ): void {
+        $laureateIds = $selected->pluck('id')->all();
+        $laureates = $programStatusService->markLaureates($laureateIds);
+
+        Log::info('Certificate print advanced program status', [
+            'training_id' => $training->id,
+            'actor_id' => Auth::id(),
+            'laureates' => $laureates,
+            'laureate_ids' => $laureateIds,
         ]);
     }
 

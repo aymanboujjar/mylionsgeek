@@ -44,4 +44,49 @@ class ProgramStatusService
     {
         return filled($formationId) ? User::PROGRAM_STATUS_ACTIVE : null;
     }
+
+    /**
+     * Mark the students selected for a certificate print as laureates.
+     *
+     * Selection is treated as the staff's decision that the student earned the
+     * certificate, so every selected student is marked even if their PDF failed
+     * to generate. The modal surfaces those failures separately as warnings.
+     *
+     * @param  list<int>  $userIds
+     * @return int Number of students updated.
+     */
+    public function markLaureates(array $userIds): int
+    {
+        return $this->transitionTo(User::PROGRAM_STATUS_LAUREATE, $userIds);
+    }
+
+    /**
+     * Bulk-write a program status, never touching a student who has left.
+     *
+     * Callers already filter students who left, but the guard is repeated here so
+     * the service is safe to call on its own. Note the explicit null check: in SQL
+     * `program_status != 'left'` is unknown for null rows and would exclude them.
+     *
+     * @param  list<int>  $userIds
+     */
+    private function transitionTo(string $programStatus, array $userIds): int
+    {
+        if ($userIds === []) {
+            return 0;
+        }
+
+        $updated = 0;
+
+        foreach (array_chunk($userIds, 500) as $chunk) {
+            $updated += User::query()
+                ->whereIn('id', $chunk)
+                ->where(function ($query) {
+                    $query->whereNull('program_status')
+                        ->orWhere('program_status', '!=', User::PROGRAM_STATUS_LEFT);
+                })
+                ->update(['program_status' => $programStatus]);
+        }
+
+        return $updated;
+    }
 }
