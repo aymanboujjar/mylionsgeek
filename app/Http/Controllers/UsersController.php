@@ -127,13 +127,7 @@ class UsersController extends Controller
                     return ((int) $user->has_handicap === 1) ? 'Oui' : 'Non';
                 },
                 'program_status' => function ($user) {
-                    return match ($user->program_status) {
-                        'active' => 'Active',
-                        'laureate' => 'Laureate',
-                        'alumni' => 'Alumni',
-                        'left' => 'Left',
-                        default => '',
-                    };
+                    return User::PROGRAM_STATUS_LABELS[$user->program_status] ?? '';
                 },
                 'access_studio' => function ($user) {
                     return (string) $user->access_studio === '1' || $user->access_studio === 1 ? 'Yes' : 'No';
@@ -1062,7 +1056,7 @@ class UsersController extends Controller
             'cin' => 'nullable|string',
             'gender' => 'nullable|in:male,female',
             'has_handicap' => 'nullable|in:0,1',
-            'program_status' => 'nullable|in:active,laureate,alumni,left',
+            'program_status' => 'nullable|in:'.implode(',', User::PROGRAM_STATUSES),
             'speciality' => 'nullable|string|max:255',
             'image' => 'nullable|image',
             'cover' => 'nullable|image', // <-- allow cover image

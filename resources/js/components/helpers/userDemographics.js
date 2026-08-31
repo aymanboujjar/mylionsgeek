@@ -8,12 +8,27 @@ export const HANDICAP_OPTIONS = [
     { value: '0', label: 'Non' },
 ];
 
-/** LionsGEEK association / program lifecycle — separate from life status (Working, Studying…). */
+/**
+ * LionsGEEK program lifecycle. Independent of `status`, which tracks life situation
+ * (Working, Studying, Freelancing…) and must never be derived from these values.
+ *
+ *   active    — currently following the training
+ *   laureate  — finished and received a certificate
+ *   completed — finished but received no certificate
+ *   left      — did not finish; set by hand by an admin or coach
+ */
+export const PROGRAM_STATUS = {
+    ACTIVE: 'active',
+    LAUREATE: 'laureate',
+    COMPLETED: 'completed',
+    LEFT: 'left',
+};
+
 export const PROGRAM_STATUS_OPTIONS = [
-    { value: 'active', label: 'Active' },
-    { value: 'laureate', label: 'Laureate' },
-    { value: 'alumni', label: 'Alumni' },
-    { value: 'left', label: 'Left' },
+    { value: PROGRAM_STATUS.ACTIVE, label: 'Active' },
+    { value: PROGRAM_STATUS.LAUREATE, label: 'Laureate' },
+    { value: PROGRAM_STATUS.COMPLETED, label: 'Completed' },
+    { value: PROGRAM_STATUS.LEFT, label: 'Left' },
 ];
 
 export const genderLabel = (gender) => {
