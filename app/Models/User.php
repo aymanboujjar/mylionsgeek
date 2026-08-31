@@ -86,6 +86,7 @@ class User extends Authenticatable
             'last_online' => 'datetime',
             'password' => 'hashed',
             'must_change_password' => 'boolean',
+            'has_handicap' => 'boolean',
             'role' => 'array',
             'socials' => 'array',
         ];

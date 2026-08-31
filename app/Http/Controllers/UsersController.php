@@ -45,6 +45,12 @@ use App\Services\UserProfileStatsService;
 
 class UsersController extends Controller
 {
+    /**
+     * Columns removed from an export when the requester is not an admin or super_admin.
+     * `has_handicap` is health data, so it is restricted at least as tightly as `cin`.
+     */
+    private const RESTRICTED_EXPORT_FIELDS = ['cin', 'phone', 'role', 'has_handicap'];
+
     public function index()
     {
         $allUsers = User::query()
@@ -73,7 +79,7 @@ class UsersController extends Controller
         $roles = is_array($user->role) ? $user->role : [$user->role];
 
         if (! in_array('admin', $roles, true) && ! in_array('super_admin', $roles, true)) {
-            $requestedFields = array_values(array_diff($requestedFields, ['cin', 'phone', 'role']));
+            $requestedFields = array_values(array_diff($requestedFields, self::RESTRICTED_EXPORT_FIELDS));
         }
 
         $fieldMap = [
@@ -125,7 +131,7 @@ class UsersController extends Controller
                         return '';
                     }
 
-                    return ((int) $user->has_handicap === 1) ? 'Oui' : 'Non';
+                    return $user->has_handicap ? 'Oui' : 'Non';
                 },
                 'program_status' => function ($user) {
                     return User::PROGRAM_STATUS_LABELS[$user->program_status] ?? '';
