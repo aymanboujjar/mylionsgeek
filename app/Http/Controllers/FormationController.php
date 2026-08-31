@@ -869,9 +869,12 @@ class FormationController extends Controller
     /**
      * Advance the program lifecycle after a successful certificate print.
      *
-     * Every selected student becomes a laureate. Only runs once the print itself
-     * has succeeded, so a request that generated nothing leaves the lifecycle
-     * untouched.
+     * Selected students become laureates; everyone else in the training who is
+     * still active is treated as having completed it without a certificate.
+     *
+     * Only runs once the print itself has succeeded, so a request that generated
+     * nothing leaves the lifecycle untouched. Both writes share a transaction so a
+     * cohort is never left half-updated.
      *
      * @param  Collection<int, User>  $selected  Students selected, minus those who left.
      */
@@ -881,13 +884,20 @@ class FormationController extends Controller
         ProgramStatusService $programStatusService,
     ): void {
         $laureateIds = $selected->pluck('id')->all();
-        $laureates = $programStatusService->markLaureates($laureateIds);
 
+        [$laureates, $completed] = DB::transaction(fn () => [
+            $programStatusService->markLaureates($laureateIds),
+            $programStatusService->markUnselectedAsCompleted((int) $training->id, $laureateIds),
+        ]);
+
+        // Bulk lifecycle writes are hard to reconstruct after the fact; log enough
+        // to answer "who changed, and who did it" if a print was a mistake.
         Log::info('Certificate print advanced program status', [
             'training_id' => $training->id,
             'actor_id' => Auth::id(),
             'laureates' => $laureates,
             'laureate_ids' => $laureateIds,
+            'completed' => $completed,
         ]);
     }
 

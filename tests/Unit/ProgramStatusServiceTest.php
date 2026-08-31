@@ -128,3 +128,61 @@ it('should_not_touch_students_who_were_not_selected', function () {
 
     expect($untouched->fresh()->program_status)->toBe(User::PROGRAM_STATUS_ACTIVE);
 });
+
+it('should_mark_unselected_active_students_as_completed', function () {
+    $selected = makeUser(['formation_id' => 1, 'program_status' => User::PROGRAM_STATUS_ACTIVE]);
+    $unselected = makeUser(['formation_id' => 1, 'program_status' => User::PROGRAM_STATUS_ACTIVE]);
+
+    $updated = $this->service->markUnselectedAsCompleted(1, [$selected->id]);
+
+    expect($updated)->toBe(1);
+    expect($unselected->fresh()->program_status)->toBe(User::PROGRAM_STATUS_COMPLETED);
+    expect($selected->fresh()->program_status)->toBe(User::PROGRAM_STATUS_ACTIVE);
+});
+
+it('should_not_change_program_status_when_student_has_left', function () {
+    $whoLeft = makeUser(['formation_id' => 1, 'program_status' => User::PROGRAM_STATUS_LEFT]);
+
+    $updated = $this->service->markUnselectedAsCompleted(1, []);
+
+    expect($updated)->toBe(0);
+    expect($whoLeft->fresh()->program_status)->toBe(User::PROGRAM_STATUS_LEFT);
+});
+
+it('should_not_change_program_status_when_student_is_already_a_laureate', function () {
+    $laureate = makeUser(['formation_id' => 1, 'program_status' => User::PROGRAM_STATUS_LAUREATE]);
+
+    $updated = $this->service->markUnselectedAsCompleted(1, []);
+
+    expect($updated)->toBe(0);
+    expect($laureate->fresh()->program_status)->toBe(User::PROGRAM_STATUS_LAUREATE);
+});
+
+it('should_not_change_program_status_when_it_has_not_been_backfilled', function () {
+    $neverBackfilled = makeUser(['formation_id' => 1, 'program_status' => null]);
+
+    $updated = $this->service->markUnselectedAsCompleted(1, []);
+
+    expect($updated)->toBe(0);
+    expect($neverBackfilled->fresh()->program_status)->toBeNull();
+});
+
+it('should_not_touch_students_from_another_training', function () {
+    $otherTraining = makeUser(['formation_id' => 2, 'program_status' => User::PROGRAM_STATUS_ACTIVE]);
+
+    $updated = $this->service->markUnselectedAsCompleted(1, []);
+
+    expect($updated)->toBe(0);
+    expect($otherTraining->fresh()->program_status)->toBe(User::PROGRAM_STATUS_ACTIVE);
+});
+
+it('should_mark_every_active_student_as_completed_when_none_were_selected', function () {
+    $first = makeUser(['formation_id' => 1, 'program_status' => User::PROGRAM_STATUS_ACTIVE]);
+    $second = makeUser(['formation_id' => 1, 'program_status' => User::PROGRAM_STATUS_ACTIVE]);
+
+    $updated = $this->service->markUnselectedAsCompleted(1, []);
+
+    expect($updated)->toBe(2);
+    expect($first->fresh()->program_status)->toBe(User::PROGRAM_STATUS_COMPLETED);
+    expect($second->fresh()->program_status)->toBe(User::PROGRAM_STATUS_COMPLETED);
+});

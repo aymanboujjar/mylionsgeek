@@ -61,6 +61,27 @@ class ProgramStatusService
     }
 
     /**
+     * Mark everyone left unselected in a certificate print as having completed the
+     * training without a certificate.
+     *
+     * Only students sitting at 'active' are moved. That single guard is what keeps
+     * the sweep safe: students who left, already completed, or are already
+     * laureates are never rewritten, and neither is anyone whose lifecycle has not
+     * been backfilled yet.
+     *
+     * @param  list<int>  $selectedUserIds  Students who were selected, and so excluded.
+     * @return int Number of students updated.
+     */
+    public function markUnselectedAsCompleted(int $formationId, array $selectedUserIds): int
+    {
+        return User::query()
+            ->where('formation_id', $formationId)
+            ->when($selectedUserIds !== [], fn ($query) => $query->whereNotIn('id', $selectedUserIds))
+            ->where('program_status', User::PROGRAM_STATUS_ACTIVE)
+            ->update(['program_status' => User::PROGRAM_STATUS_COMPLETED]);
+    }
+
+    /**
      * Bulk-write a program status, never touching a student who has left.
      *
      * Callers already filter students who left, but the guard is repeated here so
