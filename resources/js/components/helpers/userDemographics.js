@@ -4,8 +4,8 @@ export const GENDER_OPTIONS = [
 ];
 
 export const HANDICAP_OPTIONS = [
-    { value: '1', label: 'Oui' },
-    { value: '0', label: 'Non' },
+    { value: '1', label: 'Yes' },
+    { value: '0', label: 'No' },
 ];
 
 /**

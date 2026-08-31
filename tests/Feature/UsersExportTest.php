@@ -67,7 +67,7 @@ test('should_include_handicap_in_export_for_admins', function () {
     });
 });
 
-test('exported handicap column reads Oui, Non or blank', function () {
+test('exported handicap column reads Yes, No or blank', function () {
     $admin = exportingUserWithRoles(['admin']);
     User::factory()->create(['name' => 'Has handicap', 'has_handicap' => true]);
     User::factory()->create(['name' => 'No handicap', 'has_handicap' => false]);
@@ -81,8 +81,8 @@ test('exported handicap column reads Oui, Non or blank', function () {
         $rowsByName = collect(User::all())
             ->mapWithKeys(fn (User $user) => [$user->name => $export->map($user)[1]]);
 
-        expect($rowsByName['Has handicap'])->toBe('Oui');
-        expect($rowsByName['No handicap'])->toBe('Non');
+        expect($rowsByName['Has handicap'])->toBe('Yes');
+        expect($rowsByName['No handicap'])->toBe('No');
         expect($rowsByName['Unknown handicap'])->toBe('');
 
         return true;

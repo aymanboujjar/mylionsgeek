@@ -131,7 +131,7 @@ class UsersController extends Controller
                         return '';
                     }
 
-                    return $user->has_handicap ? 'Oui' : 'Non';
+                    return $user->has_handicap ? 'Yes' : 'No';
                 },
                 'program_status' => function ($user) {
                     return User::PROGRAM_STATUS_LABELS[$user->program_status] ?? '';
