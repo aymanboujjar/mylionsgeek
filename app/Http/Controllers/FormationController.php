@@ -15,6 +15,7 @@ use App\Services\CertificateTrackResolver;
 use App\Services\CoachAttendanceSaveService;
 use App\Services\DisciplineService;
 use App\Services\GeekLabCertificateCodeAllocator;
+use App\Services\ProgramStatusService;
 use App\Services\StudentCheckInSlotService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -148,7 +149,7 @@ class FormationController extends Controller
     }
 
     // ///////////////////
-    public function addStudent(Formation $training, Request $request)
+    public function addStudent(Formation $training, Request $request, ProgramStatusService $programStatusService)
     {
         $validated = $request->validate([
             'student_id' => 'required|exists:users,id',
@@ -158,6 +159,8 @@ class FormationController extends Controller
         if ($user) {
             $user->formation_id = $training->id;
             $user->save();
+
+            $programStatusService->markActiveOnEnrollment($user);
         }
 
         return back()->with('success', 'Student added');
