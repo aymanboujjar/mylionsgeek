@@ -11,10 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->integer('previous_week_rank')->nullable()->after('wakatime_api_key');
-            $table->timestamp('last_rank_update')->nullable()->after('previous_week_rank');
-        });
+        if (Schema::hasTable('users') && !Schema::hasColumn('users', 'previous_week_rank')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->integer('previous_week_rank')->nullable()->after('wakatime_api_key');
+                $table->timestamp('last_rank_update')->nullable()->after('previous_week_rank');
+            });
+        }
     }
 
     /**
@@ -22,8 +24,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn(['previous_week_rank', 'last_rank_update']);
-        });
+        if (Schema::hasTable('users') && Schema::hasColumn('users', 'previous_week_rank')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->dropColumn(['previous_week_rank', 'last_rank_update']);
+            });
+        }
     }
 };

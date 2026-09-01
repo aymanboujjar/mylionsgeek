@@ -38,7 +38,6 @@ export default function Leaderboard() {
             const params = new URLSearchParams({
                 range: filter,
                 promo: selectedPromo,
-                insights: 'true',
             });
 
             const url = `/leaderboard/data?${params}`;
@@ -117,8 +116,7 @@ export default function Leaderboard() {
         const searchLower = searchText.toLowerCase();
         const filtered = allLeaderboardData.filter((item) => {
             const userName = item.user?.name?.toLowerCase() || '';
-            const userEmail = item.user?.email?.toLowerCase() || '';
-            return userName.includes(searchLower) || userEmail.includes(searchLower);
+            return userName.includes(searchLower);
         });
 
         // Keep original ranks from the full dataset
@@ -217,50 +215,34 @@ export default function Leaderboard() {
         return 'bg-gradient-to-r from-orange-100 to-red-100 dark:from-orange-900/30 dark:to-red-900/30 text-orange-800 dark:text-orange-200';
     };
 
+    // Insights are fetched server-side on demand so a student's raw WakaTime
+    // API key never has to be sent to the browser.
     const fetchUserInsights = useCallback(
         async (user) => {
-            if (!user.user?.wakatime_api_key) return;
+            const userId = user.user?.id;
+            if (!userId) return;
 
             setLoadingInsights(true);
             try {
-                const insights = await Promise.all([
-                    // Best day insight
-                    fetch(`https://wakatime.com/api/v1/users/current/insights/best_day?range=${filter}`, {
-                        headers: { Authorization: 'Basic ' + btoa(user.user.wakatime_api_key + ':') },
-                    })
-                        .then((res) => res.json())
-                        .catch(() => null),
+                const res = await fetch(`/leaderboard/insights/${userId}?range=${filter}`);
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                const { insights } = await res.json();
 
-                    // Daily average insight
-                    fetch(`https://wakatime.com/api/v1/users/current/insights/daily_average?range=${filter}`, {
-                        headers: { Authorization: 'Basic ' + btoa(user.user.wakatime_api_key + ':') },
-                    })
-                        .then((res) => res.json())
-                        .catch(() => null),
-
-                    // Languages insight
-                    fetch(`https://wakatime.com/api/v1/users/current/insights/languages?range=${filter}`, {
-                        headers: { Authorization: 'Basic ' + btoa(user.user.wakatime_api_key + ':') },
-                    })
-                        .then((res) => res.json())
-                        .catch(() => null),
-
-                    // Projects insight
-                    fetch(`https://wakatime.com/api/v1/users/current/insights/projects?range=${filter}`, {
-                        headers: { Authorization: 'Basic ' + btoa(user.user.wakatime_api_key + ':') },
-                    })
-                        .then((res) => res.json())
-                        .catch(() => null),
-                ]);
-
-                setUserInsights({
-                    bestDay: insights[0],
-                    dailyAverage: insights[1],
-                    languages: insights[2],
-                    projects: insights[3],
-                });
+                setUserInsights(
+                    insights
+                        ? {
+                              bestDay: insights.best_day,
+                              dailyAverage: insights.daily_average,
+                              languages: insights.languages,
+                              projects: insights.projects,
+                              editors: insights.editors,
+                              machines: insights.machines,
+                          }
+                        : null,
+                );
             } catch (error) {
                 console.error('Failed to fetch insights:', error);
+                setUserInsights(null);
             } finally {
                 setLoadingInsights(false);
             }
@@ -526,7 +508,7 @@ export default function Leaderboard() {
                                         </div>
                                         <div>
                                             <div className="font-medium">{w.user?.name}</div>
-                                            <div className="text-xs text-neutral-500">{w.user?.email}</div>
+                                            <div className="text-xs text-neutral-500">{w.user?.promo ? `Promo ${w.user.promo}` : ''}</div>
                                         </div>
                                     </div>
                                     <div className="text-right">

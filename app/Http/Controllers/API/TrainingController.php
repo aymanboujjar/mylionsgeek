@@ -13,6 +13,7 @@ use App\Services\AttendanceCheckInService;
 use App\Services\AttendanceLegacyIdService;
 use App\Services\AttendancePersistenceService;
 use App\Services\FaceVerificationService;
+use App\Services\ProgramStatusService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -342,7 +343,7 @@ class TrainingController extends Controller
         ]);
     }
 
-    public function addStudent(Request $request, $id)
+    public function addStudent(Request $request, $id, ProgramStatusService $programStatusService)
     {
         $checkResult = $this->checkRequestedUser();
         if ($checkResult) {
@@ -355,11 +356,11 @@ class TrainingController extends Controller
 
         $training = Formation::findOrFail($id);
         $user = User::findOrFail($validated['student_id']);
-        
-        if ($user) {
-            $user->formation_id = $training->id;
-            $user->save();
-        }
+
+        $user->formation_id = $training->id;
+        $user->save();
+
+        $programStatusService->markActiveOnEnrollment($user);
 
         return response()->json([
             'success' => true,
@@ -395,11 +396,21 @@ class TrainingController extends Controller
             return $checkResult;
         }
 
+        // SECURITY: this route is only guarded by auth:sanctum, so authorization must be
+        // enforced here. Only privileged actors may change roles — otherwise any
+        // authenticated user enrolled in a training can promote themselves to admin.
+        $actor = $request->user();
+        $actorRoles = is_array($actor->role) ? $actor->role : array_filter([(string) $actor->role]);
+        $canManageRoles = ! empty(array_intersect(
+            array_map('strtolower', $actorRoles),
+            ['admin', 'super_admin', 'moderateur', 'coach']
+        ));
+
         $validated = $request->validate([
             'user_ids' => 'required|array|min:1',
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
-            'roles.*' => 'nullable|string',
+            'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
             'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing',
         ]);
 
@@ -419,7 +430,7 @@ class TrainingController extends Controller
         foreach ($users as $user) {
             $updateData = [];
 
-            if ($request->has('roles') && !empty($validated['roles'])) {
+            if ($request->has('roles') && !empty($validated['roles']) && $canManageRoles) {
                 $updateData['role'] = array_values(array_map(function ($r) {
                     return strtolower((string) $r);
                 }, array_filter($validated['roles'])));

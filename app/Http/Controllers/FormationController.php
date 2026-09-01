@@ -15,9 +15,11 @@ use App\Services\CertificateTrackResolver;
 use App\Services\CoachAttendanceSaveService;
 use App\Services\DisciplineService;
 use App\Services\GeekLabCertificateCodeAllocator;
+use App\Services\ProgramStatusService;
 use App\Services\StudentCheckInSlotService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -148,7 +150,7 @@ class FormationController extends Controller
     }
 
     // ///////////////////
-    public function addStudent(Formation $training, Request $request)
+    public function addStudent(Formation $training, Request $request, ProgramStatusService $programStatusService)
     {
         $validated = $request->validate([
             'student_id' => 'required|exists:users,id',
@@ -158,6 +160,8 @@ class FormationController extends Controller
         if ($user) {
             $user->formation_id = $training->id;
             $user->save();
+
+            $programStatusService->markActiveOnEnrollment($user);
         }
 
         return back()->with('success', 'Student added');
@@ -468,8 +472,8 @@ class FormationController extends Controller
             'user_ids' => 'required|array|min:1',
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
-            'roles.*' => 'nullable|string',
-            'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing,Certified',
+            'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
+            'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing',
         ]);
 
         $users = User::whereIn('id', $validated['user_ids'])
@@ -501,6 +505,35 @@ class FormationController extends Controller
         }
 
         return back()->with('success', "Successfully updated {$updated} user(s).");
+    }
+
+    /**
+     * Split selected students into those eligible for a certificate and warnings
+     * for those who are not.
+     *
+     * A student marked as having left the program can never be certified, even if
+     * they were somehow selected — the modal disables them, but a stale page or a
+     * hand-crafted request must not get past this.
+     *
+     * @param  Collection<int, User>  $selected
+     * @return array{0: Collection<int, User>, 1: list<array{id: mixed, name: string, reason: string}>}
+     */
+    private function excludeStudentsWhoLeft(Collection $selected): array
+    {
+        $hasLeft = fn (User $user) => $user->program_status === User::PROGRAM_STATUS_LEFT
+            || (blank($user->program_status) && strtolower(trim((string) $user->status)) === 'left');
+
+        $warnings = $selected
+            ->filter($hasLeft)
+            ->map(fn (User $user) => [
+                'id' => $user->id,
+                'name' => (string) $user->name,
+                'reason' => 'A quitté le programme : aucun certificat possible.',
+            ])
+            ->values()
+            ->all();
+
+        return [$selected->reject($hasLeft)->values(), $warnings];
     }
 
     /**
@@ -538,6 +571,7 @@ class FormationController extends Controller
         CertificateTrackResolver $trackResolver,
         CertificatePdfGenerator $pdfGenerator,
         GeekLabCertificateCodeAllocator $codeAllocator,
+        ProgramStatusService $programStatusService,
     ) {
         if (! $this->canPrintCertificates($training)) {
             abort(403, 'You are not allowed to print certificates for this training.');
@@ -554,12 +588,23 @@ class FormationController extends Controller
         $isGeekLab = $trackResolver->isGeekLabTraining($training->name);
         $trainingName = (string) $training->name;
 
-        $users = User::whereIn('id', $validated['user_ids'])
+        $selected = User::whereIn('id', $validated['user_ids'])
             ->where('formation_id', $training->id)
             ->get();
 
-        if ($users->isEmpty()) {
+        if ($selected->isEmpty()) {
             return $this->certificateZipErrorResponse($request, 'No valid users found for this training.', 422);
+        }
+
+        [$users, $leftWarnings] = $this->excludeStudentsWhoLeft($selected);
+
+        if ($users->isEmpty()) {
+            return $this->certificateZipErrorResponse(
+                $request,
+                'Aucun certificat généré.',
+                422,
+                ['skipped' => $leftWarnings],
+            );
         }
 
         $tmpZipPath = storage_path('app/tmp/certificates-'.$training->id.'-'.now()->format('YmdHis').'-'.Str::random(8).'.zip');
@@ -573,8 +618,9 @@ class FormationController extends Controller
         }
 
         $savedCount = 0;
-        $skipped = [];
+        $skipped = $leftWarnings;
         $usedZipNames = [];
+        $successfulRecipients = collect();
 
         foreach ($users as $user) {
             $track = $isGeekLab
@@ -621,7 +667,6 @@ class FormationController extends Controller
                 $this->storeCertificatePdf($user, $pdfStoragePath, $pdfBytes);
 
                 $certFields = [
-                    'status' => 'Certified',
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
                     'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
@@ -635,6 +680,7 @@ class FormationController extends Controller
 
                 $zip->addFromString($zipEntryName, $pdfBytes);
                 $savedCount++;
+                $successfulRecipients->push($user);
             } catch (\Throwable $e) {
                 Log::error('Failed to generate certificate', [
                     'training_id' => $training->id,
@@ -663,6 +709,13 @@ class FormationController extends Controller
             );
         }
 
+        $this->recordCertificatePrint(
+            $training,
+            $successfulRecipients,
+            $users->pluck('id')->all(),
+            $programStatusService,
+        );
+
         return response()
             ->download($tmpZipPath, 'certificats-'.$training->id.'.zip', [
                 'Content-Type' => 'application/zip',
@@ -672,7 +725,7 @@ class FormationController extends Controller
     }
 
     /**
-     * GeekLab: generate PDFs, store them, mark students Certified, queue email jobs.
+     * GeekLab: generate PDFs, store them, mark students as laureates, queue email jobs.
      */
     public function emailGeekLabCertificates(
         Formation $training,
@@ -680,6 +733,7 @@ class FormationController extends Controller
         CertificateTrackResolver $trackResolver,
         CertificatePdfGenerator $pdfGenerator,
         GeekLabCertificateCodeAllocator $codeAllocator,
+        ProgramStatusService $programStatusService,
     ) {
         if (! $this->canPrintCertificates($training)) {
             abort(403, 'You are not allowed to print certificates for this training.');
@@ -702,17 +756,29 @@ class FormationController extends Controller
         $issuedCarbon = Carbon::parse($validated['issued_date'])->startOfDay();
         $issuedDateFormatted = $issuedCarbon->format('d/m/Y');
 
-        $users = User::whereIn('id', $validated['user_ids'])
+        $selected = User::whereIn('id', $validated['user_ids'])
             ->where('formation_id', $training->id)
             ->get();
 
-        if ($users->isEmpty()) {
+        if ($selected->isEmpty()) {
             return $this->certificateZipErrorResponse($request, 'No valid users found for this training.', 422);
         }
 
+        [$users, $leftWarnings] = $this->excludeStudentsWhoLeft($selected);
+
+        if ($users->isEmpty()) {
+            return $this->certificateZipErrorResponse(
+                $request,
+                'Aucun certificat généré.',
+                422,
+                ['skipped' => $leftWarnings],
+            );
+        }
+
         $queuedCount = 0;
-        $skipped = [];
+        $skipped = $leftWarnings;
         $trainingName = (string) $training->name;
+        $queuedRecipients = collect();
 
         foreach ($users as $user) {
             $track = $trackResolver->resolveForTraining($user->field ?? null, $trainingName);
@@ -764,7 +830,6 @@ class FormationController extends Controller
 
                 // Certify immediately when PDF is stored and the email job is queued.
                 $user->forceFill([
-                    'status' => 'Certified',
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
                     'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
@@ -774,6 +839,7 @@ class FormationController extends Controller
 
                 SendGeekLabCertificateEmail::dispatch($user, $pdfStoragePath, $trainingName);
                 $queuedCount++;
+                $queuedRecipients->push($user);
             } catch (\Throwable $e) {
                 Log::error('Failed to generate/queue GeekLab certificate', [
                     'training_id' => $training->id,
@@ -798,11 +864,57 @@ class FormationController extends Controller
             );
         }
 
+        $this->recordCertificatePrint(
+            $training,
+            $queuedRecipients,
+            $users->pluck('id')->all(),
+            $programStatusService,
+        );
+
         return response()->json([
             'success' => true,
             'queued' => $queuedCount,
             'skipped' => $skipped,
             'message' => $queuedCount.' certificat(s) généré(s) et e-mail(s) mis en file d’attente.',
+        ]);
+    }
+
+    /**
+     * Advance the program lifecycle after a successful certificate print.
+     *
+     * Only students who actually received a certificate become laureates. Every
+     * eligible selection is still excluded from the completed sweep, including
+     * students whose PDF failed — they stay active until a later print succeeds.
+     *
+     * Only runs once at least one certificate was generated, so a request that
+     * produced nothing leaves the lifecycle untouched. Both writes share a
+     * transaction so a cohort is never left half-updated.
+     *
+     * @param  Collection<int, User>  $recipients  Students who received a certificate.
+     * @param  list<int>  $selectedEligibleIds  All selected eligible IDs, for completion exclusion.
+     */
+    private function recordCertificatePrint(
+        Formation $training,
+        Collection $recipients,
+        array $selectedEligibleIds,
+        ProgramStatusService $programStatusService,
+    ): void {
+        $laureateIds = $recipients->pluck('id')->all();
+
+        [$laureates, $completed] = DB::transaction(fn () => [
+            $programStatusService->markLaureates($laureateIds),
+            $programStatusService->markUnselectedAsCompleted((int) $training->id, $selectedEligibleIds),
+        ]);
+
+        // Bulk lifecycle writes are hard to reconstruct after the fact; log enough
+        // to answer "who changed, and who did it" if a print was a mistake.
+        Log::info('Certificate print advanced program status', [
+            'training_id' => $training->id,
+            'actor_id' => Auth::id(),
+            'laureates' => $laureates,
+            'laureate_ids' => $laureateIds,
+            'selected_eligible_ids' => $selectedEligibleIds,
+            'completed' => $completed,
         ]);
     }
 

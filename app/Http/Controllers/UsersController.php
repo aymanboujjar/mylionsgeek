@@ -40,10 +40,17 @@ use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Services\ExportService;
 use App\Services\DisciplineService;
+use App\Services\ProgramStatusService;
 use App\Services\UserProfileStatsService;
 
 class UsersController extends Controller
 {
+    /**
+     * Columns removed from an export when the requester is not an admin or super_admin.
+     * `has_handicap` is health data, so it is restricted at least as tightly as `cin`.
+     */
+    private const RESTRICTED_EXPORT_FIELDS = ['cin', 'phone', 'role', 'has_handicap'];
+
     public function index()
     {
         $allUsers = User::query()
@@ -72,7 +79,7 @@ class UsersController extends Controller
         $roles = is_array($user->role) ? $user->role : [$user->role];
 
         if (! in_array('admin', $roles, true) && ! in_array('super_admin', $roles, true)) {
-            $requestedFields = array_values(array_diff($requestedFields, ['cin', 'phone', 'role']));
+            $requestedFields = array_values(array_diff($requestedFields, self::RESTRICTED_EXPORT_FIELDS));
         }
 
         $fieldMap = [
@@ -81,7 +88,10 @@ class UsersController extends Controller
             'email' => 'email',
             'cin' => 'cin',
             'phone' => 'phone',
+            'gender' => 'gender',
+            'has_handicap' => 'has_handicap',
             'status' => 'status',
+            'program_status' => 'program_status',
             'role' => 'role',
             'formation' => 'formation',
             'access_studio' => 'access_studio',
@@ -108,6 +118,23 @@ class UsersController extends Controller
             'transformers' => [
                 'formation' => function ($user) {
                     return optional($user->formation)->name ?? '';
+                },
+                'gender' => function ($user) {
+                    return match ($user->gender) {
+                        'male' => 'Male',
+                        'female' => 'Female',
+                        default => '',
+                    };
+                },
+                'has_handicap' => function ($user) {
+                    if ($user->has_handicap === null) {
+                        return '';
+                    }
+
+                    return $user->has_handicap ? 'Yes' : 'No';
+                },
+                'program_status' => function ($user) {
+                    return User::PROGRAM_STATUS_LABELS[$user->program_status] ?? '';
                 },
                 'access_studio' => function ($user) {
                     return (string) $user->access_studio === '1' || $user->access_studio === 1 ? 'Yes' : 'No';
@@ -163,8 +190,12 @@ class UsersController extends Controller
             'coworker'
         ];
         $profileStats = app(UserProfileStatsService::class)->getStats($user);
+        $viewer = $request->user();
+        $viewerRoles = is_array($viewer?->role) ? $viewer->role : array_filter([(string) ($viewer?->role ?? '')]);
+        $viewerIsAdmin = in_array('admin', $viewerRoles, true) || in_array('super_admin', $viewerRoles, true);
+
         $userPayload = array_merge(
-            $this->formatUserPayload($user, $isOnline),
+            $this->formatUserPayload($user, $isOnline, $viewerIsAdmin),
             $profileStats
         );
 
@@ -697,7 +728,7 @@ class UsersController extends Controller
 
     // Discipline calculation is now handled by DisciplineService
 
-    private function formatUserPayload(User $user, bool $isOnline)
+    private function formatUserPayload(User $user, bool $isOnline, bool $includeHandicap = false)
     {
         $payload = [
             'id' => $user->id,
@@ -705,7 +736,9 @@ class UsersController extends Controller
             'email' => $user->email,
             'phone' => $user->phone,
             'cin' => $user->cin,
+            'gender' => $user->gender,
             'status' => $user->status,
+            'program_status' => $user->program_status,
             'formation_id' => $user->formation_id,
             'image' => $user->image,
             'cover' => $user->cover,
@@ -719,6 +752,10 @@ class UsersController extends Controller
             'resume_view_url' => $user->resumeViewUrl(),
             'role' => $user->role,
         ];
+
+        if ($includeHandicap) {
+            $payload['has_handicap'] = $user->has_handicap;
+        }
 
         // Debug logging
         Log::info('User payload for user ' . $user->id, [
@@ -1026,11 +1063,14 @@ class UsersController extends Controller
             'name' => 'nullable|string',
             'email' => 'nullable|email|unique:users,email,' . $user->id,
             'roles' => 'nullable|array',
-            'roles.*' => 'string',
+            'roles.*' => 'string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
             'status' => 'nullable|string',
             'formation_id' => 'nullable|integer|exists:formations,id',
             'phone' => 'nullable|string',
             'cin' => 'nullable|string',
+            'gender' => 'nullable|in:male,female',
+            'has_handicap' => 'nullable|in:0,1',
+            'program_status' => 'nullable|in:'.implode(',', User::PROGRAM_STATUSES),
             'speciality' => 'nullable|string|max:255',
             'image' => 'nullable|image',
             'cover' => 'nullable|image', // <-- allow cover image
@@ -1039,6 +1079,28 @@ class UsersController extends Controller
             'access_studio' => 'nullable|integer|in:0,1',
             'access_scan' => 'nullable|integer|in:0,1',
         ]);
+
+        // Gender / handicap / program_status: staff-only; allow clearing via empty string
+        if (! $canEditOthers) {
+            unset($validated['gender'], $validated['has_handicap'], $validated['program_status']);
+        } else {
+            if ($request->exists('gender')) {
+                $gender = $request->input('gender');
+                $validated['gender'] = ($gender === null || $gender === '') ? null : $gender;
+            }
+            if ($request->exists('has_handicap')) {
+                $handicap = $request->input('has_handicap');
+                if ($handicap === null || $handicap === '') {
+                    $validated['has_handicap'] = null;
+                } else {
+                    $validated['has_handicap'] = (int) $handicap === 1;
+                }
+            }
+            if ($request->exists('program_status')) {
+                $programStatus = $request->input('program_status');
+                $validated['program_status'] = ($programStatus === null || $programStatus === '') ? null : $programStatus;
+            }
+        }
 
             if ($request->has('formation_id')) {
             $formation = Formation::query()->whereKey($request->formation_id)->first();
@@ -1069,15 +1131,19 @@ class UsersController extends Controller
             $validated['resume'] = $user->storeResumeFromUpload($request->file('resume'));
         }
 
-        // Map roles (array) to 'role' JSON column, lowercased
-        if ($request->has('roles')) {
+        // Map roles (array) to 'role' JSON column, lowercased.
+        // SECURITY: only privileged actors may change roles. A self-updating student
+        // must never be able to escalate their own role. Without this gate the endpoint
+        // is a broken-access-control / mass-assignment privilege escalation (a student
+        // can POST roles[]=admin to /students/update/{their-own-id} and become admin).
+        unset($validated['roles'], $validated['role']);
+        if ($request->has('roles') && $canEditOthers) {
             $roles = $request->input('roles');
             if (is_array($roles)) {
                 $validated['role'] = array_values(array_map(function ($r) {
                     return strtolower((string) $r);
                 }, $roles));
             }
-            unset($validated['roles']);
         }
 
         $isSelfUpdate = (int) $actor->id === (int) $user->id;
@@ -1091,7 +1157,9 @@ class UsersController extends Controller
                 if ($requestedStatus === 'studying') {
                     unset($validated['status']);
                 } else {
-                    $studentAllowed = ['working', 'internship', 'unemployed', 'freelancing', 'certified', 'left'];
+                    // 'certified' and 'left' are deliberately absent: those outcomes are
+                    // recorded in program_status by staff, never self-assigned.
+                    $studentAllowed = ['working', 'internship', 'unemployed', 'freelancing'];
                     if (! in_array($requestedStatus, $studentAllowed, true)) {
                         unset($validated['status']);
                     }
@@ -1099,14 +1167,18 @@ class UsersController extends Controller
             }
         }
 
-        $previousStatus = $user->status;
+        $previousProgramStatus = $user->program_status;
 
         $user->update($validated);
 
-        // When an admin manually certifies a user, reset the LinkedIn modal gate fields
-        // so the share prompt appears on their next login, and ensure a share token exists.
-        // Uses forceFill() because these fields are not in $fillable.
-        if (isset($validated['status']) && $validated['status'] === 'Certified' && $previousStatus !== 'Certified') {
+        // When staff manually marks a user as a laureate, reset the LinkedIn modal gate
+        // fields so the share prompt appears on their next login, and ensure a share
+        // token exists. Uses forceFill() because these fields are not in $fillable.
+        if (
+            isset($validated['program_status'])
+            && $validated['program_status'] === User::PROGRAM_STATUS_LAUREATE
+            && $previousProgramStatus !== User::PROGRAM_STATUS_LAUREATE
+        ) {
             $user->forceFill([
                 'linkedin_share_prompted_at' => null,
                 'linkedin_share_dismissed_at' => null,
@@ -1133,7 +1205,7 @@ class UsersController extends Controller
     }
 
     //! store function
-    public function store(Request $request)
+    public function store(Request $request, ProgramStatusService $programStatusService)
     {
         $validated = $request->validate([
             'name' => 'required|string',
@@ -1183,6 +1255,7 @@ class UsersController extends Controller
             'status' => $validated['status'] ?? null,
             'cin' => $validated['cin'] ?? null,
             'formation_id' => $validated['formation_id'],
+            'program_status' => $programStatusService->initialProgramStatusFor($validated['formation_id'] ?? null),
             'account_state' => $validated['account_state'] ?? 'active',
             'access_studio' => $validated['access_studio'],
             'access_cowork' => $validated['access_cowork'],

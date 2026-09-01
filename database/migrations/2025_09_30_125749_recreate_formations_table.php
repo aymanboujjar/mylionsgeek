@@ -15,8 +15,6 @@ return new class extends Migration
 			$table->string('img')->default('default_training.jpg');
 			$table->string('start_time')->nullable()->default('NULL');
 			$table->string('end_time')->nullable()->default('NULL');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

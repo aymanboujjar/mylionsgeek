@@ -11,13 +11,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->string('password')->nullable()->change();
-            $table->string('phone')->nullable()->change();
-            $table->string('cin')->nullable()->change();
-            $table->string('image')->nullable()->change();
-            $table->enum('status', ['Working', 'Studying', 'Internship', 'Unemployed', 'Freelancing'])->nullable()->change();
-        });
+        if (Schema::hasTable('users')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->string('password')->nullable()->change();
+                $table->string('phone')->nullable()->change();
+                $table->string('cin')->nullable()->change();
+                $table->string('image')->nullable()->change();
+                $table->enum('status', ['Working', 'Studying', 'Internship', 'Unemployed', 'Freelancing'])->nullable()->change();
+            });
+        }
     }
 
     /**

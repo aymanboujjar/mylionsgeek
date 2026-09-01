@@ -14,8 +14,6 @@ return new class extends Migration
 			$table->string('image');
 			$table->integer('table');
 			$table->integer('state');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

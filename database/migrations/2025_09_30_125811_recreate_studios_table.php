@@ -13,8 +13,6 @@ return new class extends Migration
 			$table->id();
 			$table->string('name');
 			$table->integer('state');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }

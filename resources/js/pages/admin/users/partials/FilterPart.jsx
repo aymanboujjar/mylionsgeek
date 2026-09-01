@@ -1,21 +1,61 @@
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Button } from '@headlessui/react';
-import { RotateCw, Search } from 'lucide-react';
+import { GENDER_OPTIONS, HANDICAP_OPTIONS, PROGRAM_STATUS_OPTIONS } from '@/components/helpers/userDemographics';
+import { Filter, RotateCw, Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 const displayRole = (role) => (role === 'studio_responsable' ? 'Responsable Studio' : role);
 
-const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, filteredUsers = [], status, fields = [], initialFilters }) => {
-    //! handel change selects and saerch
-    const handleChange = (field, e) => {
-        setFilters((prev) => ({ ...prev, [field]: e }));
+const FALLBACK_FILTERS = {
+    search: '',
+    training: null,
+    promo: null,
+    role: '',
+    status: '',
+    date: '',
+    field: null,
+    gender: '',
+    has_handicap: '',
+    program_status: '',
+};
+
+const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, fields = [], initialFilters }) => {
+    const [open, setOpen] = useState(false);
+    const resetValues = initialFilters ? { ...initialFilters } : FALLBACK_FILTERS;
+
+    const handleChange = (field, value) => {
+        setFilters((prev) => ({ ...prev, [field]: value }));
+    };
+
+    const activeFilterCount = useMemo(() => {
+        let count = 0;
+        if (filters.training !== null && filters.training !== undefined) count += 1;
+        if (filters.promo) count += 1;
+        if (filters.field) count += 1;
+        if (filters.role) count += 1;
+        if (filters.status) count += 1;
+        if (filters.gender) count += 1;
+        if (filters.has_handicap !== '' && filters.has_handicap !== null && filters.has_handicap !== undefined) count += 1;
+        if (filters.program_status) count += 1;
+        return count;
+    }, [filters]);
+
+    const handleReset = () => {
+        setFilters({ ...resetValues, search: filters.search });
+    };
+
+    const handleResetAll = () => {
+        setFilters({ ...resetValues });
+        setOpen(false);
     };
 
     return (
         <>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-7">
-                {/* Search Input */}
-                <div className="relative">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative w-full sm:max-w-sm">
                     <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-500" />
                     <Input
                         type="text"
@@ -26,131 +66,220 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, filteredU
                     />
                 </div>
 
-                {/* Select by Training */}
-                <Select
-                    value={filters.training === null ? undefined : String(filters.training)}
-                    onValueChange={(e) => handleChange('training', e === 'all' ? null : Number(e))}
-                >
-                    <SelectTrigger className="bg-[#e5e5e5] px-2 text-[#0a0a0a] data-[placeholder]:text-[#0a0a0a]/50 dark:bg-[#262626] dark:text-white dark:data-[placeholder]:text-white">
-                        <SelectValue placeholder="Select By Training" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#e5e5e5] text-[#0a0a0a] dark:bg-[#262626] dark:text-white">
-                        <SelectItem value="all" className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
-                            All
-                        </SelectItem>
-                        {trainings.map((training) => (
-                            <SelectItem
-                                key={training.id}
-                                value={training.id?.toString?.() ?? String(training.id)}
-                                className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700"
-                            >
-                                <div className="flex flex-col">
-                                    <span>{training.name}</span>
-                                    <span className="text-xs text-muted-foreground">Coach: {training.coach?.name ?? '—'}</span>
-                                </div>
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="cursor-pointer gap-2 border-beta/20 bg-[#e5e5e5] text-[#0a0a0a] hover:bg-[#dcdcdc] dark:border-light/10 dark:bg-[#262626] dark:text-white dark:hover:bg-[#333]"
+                        onClick={() => setOpen(true)}
+                    >
+                        <Filter size={16} />
+                        Filter
+                        {activeFilterCount > 0 && (
+                            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-alpha px-1.5 text-xs font-semibold text-black">
+                                {activeFilterCount}
+                            </span>
+                        )}
+                    </Button>
 
-                {/* Select by Promo */}
-                <Select value={filters.promo ?? undefined} onValueChange={(e) => handleChange('promo', e === 'all' ? null : e)}>
-                    <SelectTrigger className="bg-[#e5e5e5] text-[#0a0a0a] data-[placeholder]:text-[#0a0a0a]/50 dark:bg-[#262626] dark:text-white dark:data-[placeholder]:text-white">
-                        <SelectValue placeholder="Select By Promo" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#e5e5e5] text-[#0a0a0a] dark:bg-[#262626] dark:text-white">
-                        <SelectItem value="all" className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
-                            All
-                        </SelectItem>
-                        {allPromo.map((p) => (
-                            <SelectItem key={p} value={p} className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
-                                {p}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-
-                {/* Select by Field */}
-                <Select value={filters.field ?? undefined} onValueChange={(value) => handleChange('field', value === 'all' ? null : value)}>
-                    <SelectTrigger className="bg-[#e5e5e5] text-[#0a0a0a] data-[placeholder]:text-[#0a0a0a]/50 dark:bg-[#262626] dark:text-white dark:data-[placeholder]:text-white">
-                        <SelectValue placeholder="Select By Field" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#e5e5e5] text-[#0a0a0a] dark:bg-[#262626] dark:text-white">
-                        <SelectItem value="all" className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
-                            All
-                        </SelectItem>
-                        {fields.map((field) => (
-                            <SelectItem
-                                key={field}
-                                value={field}
-                                className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700"
-                            >
-                                {field}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-
-                {/* Select by Role */}
-                <Select value={filters.role ?? undefined} onValueChange={(e) => handleChange('role', e === 'all' ? '' : e)}>
-                    <SelectTrigger className="bg-[#e5e5e5] text-[#0a0a0a] data-[placeholder]:text-[#0a0a0a]/50 dark:bg-[#262626] dark:text-white dark:data-[placeholder]:text-white">
-                        <SelectValue placeholder="Select By Role" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#e5e5e5] text-[#0a0a0a] dark:bg-[#262626] dark:text-white">
-                        <SelectItem value="all" className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
-                            All
-                        </SelectItem>
-                        {roles.map((role, index) => (
-                            <SelectItem
-                                key={index}
-                                value={role}
-                                className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700"
-                            >
-                                {displayRole(role)}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-
-                {/* Select by Status */}
-                <Select value={filters.status ?? undefined} onValueChange={(e) => handleChange('status', e === 'all' ? '' : e)}>
-                    <SelectTrigger className="bg-[#e5e5e5] text-[#0a0a0a] data-[placeholder]:text-[#0a0a0a]/50 dark:bg-[#262626] dark:text-white dark:data-[placeholder]:text-white">
-                        <SelectValue placeholder="Select By Status" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#e5e5e5] text-[#0a0a0a] dark:bg-[#262626] dark:text-white">
-                        <SelectItem value="all" className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
-                            All
-                        </SelectItem>
-                        {status.map((s, index) => (
-                            <SelectItem key={index} value={s} className="text-[#0a0a0a] focus:bg-gray-200 dark:text-white dark:focus:bg-neutral-700">
-                                {s}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-
-                {/* Reset Button */}
-                <Button
-                    className="flex w-fit cursor-pointer items-center gap-2 rounded-lg bg-[#e5e5e5] px-2 py-1 text-[#0a0a0a] dark:bg-[#262626] dark:text-white"
-                    onClick={() =>
-                        setFilters(
-                            initialFilters
-                                ? { ...initialFilters }
-                                : {
-                                      search: '',
-                                      training: null,
-                                      promo: null,
-                                      role: '',
-                                      status: '',
-                                      date: '',
-                                      field: null,
-                                  },
-                        )
-                    }
-                >
-                    <RotateCw size={15} /> Reset
-                </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="cursor-pointer gap-2 border-beta/20 bg-[#e5e5e5] text-[#0a0a0a] hover:bg-[#dcdcdc] dark:border-light/10 dark:bg-[#262626] dark:text-white dark:hover:bg-[#333]"
+                        onClick={handleResetAll}
+                    >
+                        <RotateCw size={15} />
+                        Reset
+                    </Button>
+                </div>
             </div>
+
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Filters</DialogTitle>
+                        <DialogDescription>Filter users by training, role, gender, handicap, and more.</DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
+                        <div className="space-y-2">
+                            <Label>Training</Label>
+                            <Select
+                                value={filters.training === null ? 'all' : String(filters.training)}
+                                onValueChange={(e) => handleChange('training', e === 'all' ? null : Number(e))}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select By Training" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    {trainings.map((training) => (
+                                        <SelectItem key={training.id} value={training.id?.toString?.() ?? String(training.id)}>
+                                            <div className="flex flex-col">
+                                                <span>{training.name}</span>
+                                                <span className="text-xs text-muted-foreground">Coach: {training.coach?.name ?? '—'}</span>
+                                            </div>
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Promo</Label>
+                            <Select
+                                value={filters.promo ?? 'all'}
+                                onValueChange={(e) => handleChange('promo', e === 'all' ? null : e)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select By Promo" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    {allPromo.map((p) => (
+                                        <SelectItem key={p} value={p}>
+                                            {p}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Field</Label>
+                            <Select
+                                value={filters.field ?? 'all'}
+                                onValueChange={(value) => handleChange('field', value === 'all' ? null : value)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select By Field" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    {fields.map((field) => (
+                                        <SelectItem key={field} value={field}>
+                                            {field}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Role</Label>
+                            <Select
+                                value={filters.role || 'all'}
+                                onValueChange={(e) => handleChange('role', e === 'all' ? '' : e)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select By Role" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    {roles.filter(Boolean).map((role) => (
+                                        <SelectItem key={role} value={role}>
+                                            {displayRole(role)}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Status</Label>
+                            <Select
+                                value={filters.status || 'all'}
+                                onValueChange={(e) => handleChange('status', e === 'all' ? '' : e)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select By Status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    {status.map((s) => (
+                                        <SelectItem key={s} value={s}>
+                                            {s}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Gender</Label>
+                            <Select
+                                value={filters.gender || 'all'}
+                                onValueChange={(e) => handleChange('gender', e === 'all' ? '' : e)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select By Gender" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    {GENDER_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Handicap</Label>
+                            <Select
+                                value={filters.has_handicap === '' || filters.has_handicap === null || filters.has_handicap === undefined ? 'all' : String(filters.has_handicap)}
+                                onValueChange={(e) => handleChange('has_handicap', e === 'all' ? '' : e)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select By Handicap" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    {HANDICAP_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Program status</Label>
+                            <Select
+                                value={filters.program_status || 'all'}
+                                onValueChange={(e) => handleChange('program_status', e === 'all' ? '' : e)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select By Program status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    {PROGRAM_STATUS_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="gap-2 sm:gap-2">
+                        <Button type="button" variant="outline" onClick={handleReset}>
+                            Clear filters
+                        </Button>
+                        <Button
+                            type="button"
+                            className="border border-alpha bg-alpha text-black hover:bg-transparent hover:text-alpha"
+                            onClick={() => setOpen(false)}
+                        >
+                            Apply
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 };

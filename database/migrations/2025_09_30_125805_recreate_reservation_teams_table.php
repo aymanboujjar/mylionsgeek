@@ -13,8 +13,6 @@ return new class extends Migration
 			$table->id();
 			$table->integer('user_id');
 			$table->integer('reservation_id');
-			$table->string('created_at')->nullable()->default('NULL');
-			$table->string('updated_at')->nullable()->default('NULL');
 			$table->timestamps();
             });
         }
