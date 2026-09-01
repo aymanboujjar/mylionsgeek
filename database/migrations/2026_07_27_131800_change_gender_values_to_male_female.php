@@ -90,10 +90,15 @@ return new class extends Migration
         }
 
         if ($driver === 'mysql') {
-            DB::statement("ALTER TABLE users MODIFY gender ENUM('homme', 'femme') NULL");
+            // Accept both spellings before remapping, so no row is momentarily invalid.
+            DB::statement("ALTER TABLE users MODIFY gender ENUM('homme', 'femme', 'male', 'female') NULL");
         }
 
         DB::table('users')->where('gender', 'male')->update(['gender' => 'homme']);
         DB::table('users')->where('gender', 'female')->update(['gender' => 'femme']);
+
+        if ($driver === 'mysql') {
+            DB::statement("ALTER TABLE users MODIFY gender ENUM('homme', 'femme') NULL");
+        }
     }
 };

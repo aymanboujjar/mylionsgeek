@@ -46,11 +46,10 @@ class ProgramStatusService
     }
 
     /**
-     * Mark the students selected for a certificate print as laureates.
+     * Mark students who actually received a certificate as laureates.
      *
-     * Selection is treated as the staff's decision that the student earned the
-     * certificate, so every selected student is marked even if their PDF failed
-     * to generate. The modal surfaces those failures separately as warnings.
+     * Callers pass only IDs whose PDF was generated successfully. A student who
+     * was selected but skipped because generation failed is not included.
      *
      * @param  list<int>  $userIds
      * @return int Number of students updated.

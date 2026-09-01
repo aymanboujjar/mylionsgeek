@@ -52,6 +52,12 @@ return new class extends Migration
             return;
         }
 
+        if ($driver === 'pgsql') {
+            $this->rewriteEnumForPgsql($targetValues, $from, $to);
+
+            return;
+        }
+
         // Any other driver: remap the value and leave constraint handling to the DBMS.
         DB::table('users')->where('program_status', $from)->update(['program_status' => $to]);
     }
@@ -97,6 +103,54 @@ return new class extends Migration
         DB::statement($this->modifyEnumStatement($union));
         DB::table('users')->where('program_status', $from)->update(['program_status' => $to]);
         DB::statement($this->modifyEnumStatement($targetValues));
+    }
+
+    /**
+     * PostgreSQL stores Laravel enums as varchar + CHECK. Widen the check to accept
+     * both spellings before remapping, then narrow it to the target set.
+     *
+     * @param  list<string>  $targetValues
+     */
+    private function rewriteEnumForPgsql(array $targetValues, string $from, string $to): void
+    {
+        $union = array_values(array_unique(array_merge(self::OLD_VALUES, self::NEW_VALUES)));
+
+        $this->replaceProgramStatusCheckConstraint($union);
+        DB::table('users')->where('program_status', $from)->update(['program_status' => $to]);
+        $this->replaceProgramStatusCheckConstraint($targetValues);
+    }
+
+    private function dropProgramStatusCheckConstraint(): void
+    {
+        $constraints = DB::select("
+            SELECT c.conname
+            FROM pg_constraint c
+            JOIN pg_class t ON c.conrelid = t.oid
+            JOIN pg_namespace n ON t.relnamespace = n.oid
+            WHERE t.relname = 'users'
+              AND n.nspname = current_schema()
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) LIKE '%program_status%'
+        ");
+
+        foreach ($constraints as $constraint) {
+            DB::statement('ALTER TABLE users DROP CONSTRAINT "'.$constraint->conname.'"');
+        }
+    }
+
+    /**
+     * @param  list<string>  $values
+     */
+    private function replaceProgramStatusCheckConstraint(array $values): void
+    {
+        $this->dropProgramStatusCheckConstraint();
+
+        $quoted = implode(', ', array_map(fn (string $value) => "'".$value."'", $values));
+
+        DB::statement(
+            'ALTER TABLE users ADD CONSTRAINT users_program_status_check '
+            ."CHECK (program_status IS NULL OR program_status IN ({$quoted}))"
+        );
     }
 
     /**

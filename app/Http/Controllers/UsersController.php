@@ -190,8 +190,12 @@ class UsersController extends Controller
             'coworker'
         ];
         $profileStats = app(UserProfileStatsService::class)->getStats($user);
+        $viewer = $request->user();
+        $viewerRoles = is_array($viewer?->role) ? $viewer->role : array_filter([(string) ($viewer?->role ?? '')]);
+        $viewerIsAdmin = in_array('admin', $viewerRoles, true) || in_array('super_admin', $viewerRoles, true);
+
         $userPayload = array_merge(
-            $this->formatUserPayload($user, $isOnline),
+            $this->formatUserPayload($user, $isOnline, $viewerIsAdmin),
             $profileStats
         );
 
@@ -724,7 +728,7 @@ class UsersController extends Controller
 
     // Discipline calculation is now handled by DisciplineService
 
-    private function formatUserPayload(User $user, bool $isOnline)
+    private function formatUserPayload(User $user, bool $isOnline, bool $includeHandicap = false)
     {
         $payload = [
             'id' => $user->id,
@@ -733,7 +737,6 @@ class UsersController extends Controller
             'phone' => $user->phone,
             'cin' => $user->cin,
             'gender' => $user->gender,
-            'has_handicap' => $user->has_handicap,
             'status' => $user->status,
             'program_status' => $user->program_status,
             'formation_id' => $user->formation_id,
@@ -749,6 +752,10 @@ class UsersController extends Controller
             'resume_view_url' => $user->resumeViewUrl(),
             'role' => $user->role,
         ];
+
+        if ($includeHandicap) {
+            $payload['has_handicap'] = $user->has_handicap;
+        }
 
         // Debug logging
         Log::info('User payload for user ' . $user->id, [

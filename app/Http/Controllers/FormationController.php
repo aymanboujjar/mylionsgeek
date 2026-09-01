@@ -520,7 +520,8 @@ class FormationController extends Controller
      */
     private function excludeStudentsWhoLeft(Collection $selected): array
     {
-        $hasLeft = fn (User $user) => $user->program_status === User::PROGRAM_STATUS_LEFT;
+        $hasLeft = fn (User $user) => $user->program_status === User::PROGRAM_STATUS_LEFT
+            || (blank($user->program_status) && strtolower(trim((string) $user->status)) === 'left');
 
         $warnings = $selected
             ->filter($hasLeft)
@@ -619,6 +620,7 @@ class FormationController extends Controller
         $savedCount = 0;
         $skipped = $leftWarnings;
         $usedZipNames = [];
+        $successfulRecipients = collect();
 
         foreach ($users as $user) {
             $track = $isGeekLab
@@ -678,6 +680,7 @@ class FormationController extends Controller
 
                 $zip->addFromString($zipEntryName, $pdfBytes);
                 $savedCount++;
+                $successfulRecipients->push($user);
             } catch (\Throwable $e) {
                 Log::error('Failed to generate certificate', [
                     'training_id' => $training->id,
@@ -706,7 +709,12 @@ class FormationController extends Controller
             );
         }
 
-        $this->recordCertificatePrint($training, $users, $programStatusService);
+        $this->recordCertificatePrint(
+            $training,
+            $successfulRecipients,
+            $users->pluck('id')->all(),
+            $programStatusService,
+        );
 
         return response()
             ->download($tmpZipPath, 'certificats-'.$training->id.'.zip', [
@@ -770,6 +778,7 @@ class FormationController extends Controller
         $queuedCount = 0;
         $skipped = $leftWarnings;
         $trainingName = (string) $training->name;
+        $queuedRecipients = collect();
 
         foreach ($users as $user) {
             $track = $trackResolver->resolveForTraining($user->field ?? null, $trainingName);
@@ -830,6 +839,7 @@ class FormationController extends Controller
 
                 SendGeekLabCertificateEmail::dispatch($user, $pdfStoragePath, $trainingName);
                 $queuedCount++;
+                $queuedRecipients->push($user);
             } catch (\Throwable $e) {
                 Log::error('Failed to generate/queue GeekLab certificate', [
                     'training_id' => $training->id,
@@ -854,7 +864,12 @@ class FormationController extends Controller
             );
         }
 
-        $this->recordCertificatePrint($training, $users, $programStatusService);
+        $this->recordCertificatePrint(
+            $training,
+            $queuedRecipients,
+            $users->pluck('id')->all(),
+            $programStatusService,
+        );
 
         return response()->json([
             'success' => true,
@@ -867,25 +882,28 @@ class FormationController extends Controller
     /**
      * Advance the program lifecycle after a successful certificate print.
      *
-     * Selected students become laureates; everyone else in the training who is
-     * still active is treated as having completed it without a certificate.
+     * Only students who actually received a certificate become laureates. Every
+     * eligible selection is still excluded from the completed sweep, including
+     * students whose PDF failed — they stay active until a later print succeeds.
      *
-     * Only runs once the print itself has succeeded, so a request that generated
-     * nothing leaves the lifecycle untouched. Both writes share a transaction so a
-     * cohort is never left half-updated.
+     * Only runs once at least one certificate was generated, so a request that
+     * produced nothing leaves the lifecycle untouched. Both writes share a
+     * transaction so a cohort is never left half-updated.
      *
-     * @param  Collection<int, User>  $selected  Students selected, minus those who left.
+     * @param  Collection<int, User>  $recipients  Students who received a certificate.
+     * @param  list<int>  $selectedEligibleIds  All selected eligible IDs, for completion exclusion.
      */
     private function recordCertificatePrint(
         Formation $training,
-        Collection $selected,
+        Collection $recipients,
+        array $selectedEligibleIds,
         ProgramStatusService $programStatusService,
     ): void {
-        $laureateIds = $selected->pluck('id')->all();
+        $laureateIds = $recipients->pluck('id')->all();
 
         [$laureates, $completed] = DB::transaction(fn () => [
             $programStatusService->markLaureates($laureateIds),
-            $programStatusService->markUnselectedAsCompleted((int) $training->id, $laureateIds),
+            $programStatusService->markUnselectedAsCompleted((int) $training->id, $selectedEligibleIds),
         ]);
 
         // Bulk lifecycle writes are hard to reconstruct after the fact; log enough
@@ -895,6 +913,7 @@ class FormationController extends Controller
             'actor_id' => Auth::id(),
             'laureates' => $laureates,
             'laureate_ids' => $laureateIds,
+            'selected_eligible_ids' => $selectedEligibleIds,
             'completed' => $completed,
         ]);
     }
