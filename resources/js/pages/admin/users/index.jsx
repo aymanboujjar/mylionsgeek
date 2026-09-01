@@ -15,6 +15,9 @@ const defaultFilters = {
     status: '',
     date: '',
     field: null,
+    gender: '',
+    has_handicap: '',
+    program_status: '',
 };
 
 const Users = ({ users, trainings }) => {
@@ -82,6 +85,22 @@ const Users = ({ users, trainings }) => {
             .filter((user) => {
                 if (!statusFilter) return true;
                 return (user.status || '').toLowerCase() === statusFilter;
+            })
+            .filter((user) => {
+                if (!filters.gender) return true;
+                return (user.gender || '') === filters.gender;
+            })
+            .filter((user) => {
+                if (filters.has_handicap === '' || filters.has_handicap === null || filters.has_handicap === undefined) {
+                    return true;
+                }
+                const wantsHandicap = String(filters.has_handicap) === '1';
+                const userHasHandicap = user.has_handicap === true || user.has_handicap === 1 || user.has_handicap === '1';
+                return wantsHandicap ? userHasHandicap : user.has_handicap === false || user.has_handicap === 0 || user.has_handicap === '0';
+            })
+            .filter((user) => {
+                if (!filters.program_status) return true;
+                return (user.program_status || '') === filters.program_status;
             })
             .sort((a, b) => {
                 if (filters.date === 'oldest') {

@@ -8,11 +8,14 @@ const DEFAULT_EXPORT_FIELDS = {
     email: true,
     cin: true,
     phone: false,
+    gender: false,
+    program_status: false,
+    status: false,
+    has_handicap: false,
     formation: true,
     access_studio: false,
     access_cowork: false,
     role: false,
-    status: false,
 };
 
 const buildExportFields = (hiddenFields = []) => {

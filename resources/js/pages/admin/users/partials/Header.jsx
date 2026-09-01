@@ -15,7 +15,8 @@ const Header = ({ trainings, filteredUsers }) => {
 
     const userRoles = Array.isArray(auth?.user?.role) ? auth.user.role : [auth?.user?.role].filter(Boolean);
     const canExportSensitiveFields = userRoles.includes('admin') || userRoles.includes('super_admin');
-    const hiddenExportFields = canExportSensitiveFields ? [] : ['cin', 'phone', 'role'];
+    // Mirrors UsersController::RESTRICTED_EXPORT_FIELDS; the server strips these regardless.
+    const hiddenExportFields = canExportSensitiveFields ? [] : ['cin', 'phone', 'role', 'has_handicap'];
 
     const emailsToCopy = useMemo(() => {
         return filteredUsers
