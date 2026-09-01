@@ -461,7 +461,7 @@ class FormationController extends Controller
         return back()->with('success', 'Formation deleted successfully!');
     }
 
-    // Bulk update users roles and status
+    // Bulk update users roles, program status, and handicap
     public function bulkUpdateUsers(Formation $training, Request $request)
     {
         $validated = $request->validate([
@@ -469,7 +469,8 @@ class FormationController extends Controller
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
             'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
-            'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing,Certified',
+            'program_status' => 'nullable|in:active,certified,not_certified,left',
+            'has_handicap' => 'nullable|in:0,1',
         ]);
 
         $users = User::whereIn('id', $validated['user_ids'])
@@ -490,8 +491,18 @@ class FormationController extends Controller
                 }, array_filter($validated['roles'])));
             }
 
-            if ($request->has('status') && ! empty($validated['status'])) {
-                $updateData['status'] = $validated['status'];
+            if ($request->exists('program_status')) {
+                $programStatus = $request->input('program_status');
+                $updateData['program_status'] = ($programStatus === null || $programStatus === '') ? null : $programStatus;
+            }
+
+            if ($request->exists('has_handicap')) {
+                $handicap = $request->input('has_handicap');
+                if ($handicap === null || $handicap === '') {
+                    $updateData['has_handicap'] = null;
+                } else {
+                    $updateData['has_handicap'] = (int) $handicap === 1;
+                }
             }
 
             if (! empty($updateData)) {

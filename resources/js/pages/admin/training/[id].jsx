@@ -1,7 +1,13 @@
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+    HANDICAP_OPTIONS,
+    PROGRAM_STATUS,
+    PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS,
+    programStatusLabel,
+} from '@/components/helpers/userDemographics';
 import AppLayout from '@/layouts/app-layout';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
@@ -75,7 +81,8 @@ export default function Show({ training, usersNull, courses = [] }) {
     const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
     const [selectedUserIds, setSelectedUserIds] = useState([]);
     const [bulkRoles, setBulkRoles] = useState([]);
-    const [bulkStatus, setBulkStatus] = useState('');
+    const [bulkProgramStatus, setBulkProgramStatus] = useState('');
+    const [bulkHasHandicap, setBulkHasHandicap] = useState('');
     const [qrCodeDate, setQrCodeDate] = useState(new Date().toISOString().split('T')[0]);
     const [showCertificateModal, setShowCertificateModal] = useState(false);
 
@@ -1273,7 +1280,7 @@ export default function Show({ training, usersNull, courses = [] }) {
                     <DialogContent className="max-h-[80vh] w-full max-w-2xl overflow-y-auto border border-alpha/20 bg-light text-dark dark:bg-dark dark:text-light">
                         <DialogHeader>
                             <DialogTitle className="text-xl font-semibold">Update Users - {training.name}</DialogTitle>
-                            <p className="text-sm text-dark/70 dark:text-light/70">Select users and update their roles and/or status</p>
+                            <p className="text-sm text-dark/70 dark:text-light/70">Select users and update their roles, program status, and/or handicap</p>
                         </DialogHeader>
 
                         <div className="mt-4 space-y-6">
@@ -1321,8 +1328,17 @@ export default function Show({ training, usersNull, courses = [] }) {
                                                 <p className="font-semibold text-dark dark:text-light">{student.name}</p>
                                                 <p className="text-xs text-dark/70 dark:text-light/70">{student.email}</p>
                                                 <div className="mt-1 text-xs text-dark/60 dark:text-light/60">
-                                                    Role: {Array.isArray(student.role) ? student.role.join(', ') : student.role || 'N/A'} | Status:{' '}
-                                                    {student.status || 'N/A'}
+                                                    Role: {Array.isArray(student.role) ? student.role.join(', ') : student.role || 'N/A'} | Program status:{' '}
+                                                    {programStatusLabel(student.program_status) || 'N/A'} | Handicap:{' '}
+                                                    {student.has_handicap === true ||
+                                                    student.has_handicap === 1 ||
+                                                    student.has_handicap === '1'
+                                                        ? 'Oui'
+                                                        : student.has_handicap === false ||
+                                                            student.has_handicap === 0 ||
+                                                            student.has_handicap === '0'
+                                                          ? 'Non'
+                                                          : 'N/A'}
                                                 </div>
                                             </div>
                                         </div>
@@ -1340,21 +1356,47 @@ export default function Show({ training, usersNull, courses = [] }) {
                                     </div>
 
                                     <div>
-                                        <label className="mb-2 block text-sm font-medium">Update Status (optional)</label>
+                                        <label className="mb-2 block text-sm font-medium">Update Program status (optional)</label>
                                         <Select
-                                            value={bulkStatus || undefined}
-                                            onValueChange={(value) => setBulkStatus(value === 'keep-existing' ? '' : value)}
+                                            value={bulkProgramStatus || undefined}
+                                            onValueChange={(value) => setBulkProgramStatus(value === 'keep-existing' ? '' : value)}
                                         >
                                             <SelectTrigger className="w-full">
-                                                <SelectValue placeholder="Select status (optional)" />
+                                                <SelectValue placeholder="Select program status (optional)" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="keep-existing">Keep existing status</SelectItem>
-                                                <SelectItem value="Working">Working</SelectItem>
-                                                <SelectItem value="Studying">Studying</SelectItem>
-                                                <SelectItem value="Internship">Internship</SelectItem>
-                                                <SelectItem value="Unemployed">Unemployed</SelectItem>
-                                                <SelectItem value="Freelancing">Freelancing</SelectItem>
+                                                <SelectItem value="keep-existing">Keep existing program status</SelectItem>
+                                                <SelectItem value="all">All</SelectItem>
+                                                <SelectItem value={PROGRAM_STATUS.ACTIVE}>Active</SelectItem>
+                                                <SelectItem value={PROGRAM_STATUS.LEFT}>Left</SelectItem>
+                                                <SelectGroup>
+                                                    <SelectLabel>Certificate &amp; Not Certificate</SelectLabel>
+                                                    {PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS.map((option) => (
+                                                        <SelectItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectGroup>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium">Update Handicap (optional)</label>
+                                        <Select
+                                            value={bulkHasHandicap || undefined}
+                                            onValueChange={(value) => setBulkHasHandicap(value === 'keep-existing' ? '' : value)}
+                                        >
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder="Select handicap (optional)" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="keep-existing">Keep existing handicap</SelectItem>
+                                                {HANDICAP_OPTIONS.map((option) => (
+                                                    <SelectItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -1369,7 +1411,8 @@ export default function Show({ training, usersNull, courses = [] }) {
                                     setShowBulkUpdateModal(false);
                                     setSelectedUserIds([]);
                                     setBulkRoles([]);
-                                    setBulkStatus('');
+                                    setBulkProgramStatus('');
+                                    setBulkHasHandicap('');
                                 }}
                             >
                                 Cancel
@@ -1388,8 +1431,12 @@ export default function Show({ training, usersNull, courses = [] }) {
                                         formData.roles = bulkRoles;
                                     }
 
-                                    if (bulkStatus && bulkStatus !== 'keep-existing') {
-                                        formData.status = bulkStatus;
+                                    if (bulkProgramStatus && bulkProgramStatus !== 'keep-existing') {
+                                        formData.program_status = bulkProgramStatus === 'all' ? '' : bulkProgramStatus;
+                                    }
+
+                                    if (bulkHasHandicap && bulkHasHandicap !== 'keep-existing') {
+                                        formData.has_handicap = bulkHasHandicap;
                                     }
 
                                     router.post(`/trainings/${training.id}/bulk-update-users`, formData, {
@@ -1397,14 +1444,20 @@ export default function Show({ training, usersNull, courses = [] }) {
                                             setShowBulkUpdateModal(false);
                                             setSelectedUserIds([]);
                                             setBulkRoles([]);
-                                            setBulkStatus('');
+                                            setBulkProgramStatus('');
+                                            setBulkHasHandicap('');
                                         },
                                         onError: (errors) => {
                                             console.error('Update error:', errors);
                                         },
                                     });
                                 }}
-                                disabled={selectedUserIds.length === 0 || (bulkRoles.length === 0 && (!bulkStatus || bulkStatus === 'keep-existing'))}
+                                disabled={
+                                    selectedUserIds.length === 0 ||
+                                    (bulkRoles.length === 0 &&
+                                        (!bulkProgramStatus || bulkProgramStatus === 'keep-existing') &&
+                                        (!bulkHasHandicap || bulkHasHandicap === 'keep-existing'))
+                                }
                                 className="border border-[var(--color-alpha)] bg-[var(--color-alpha)] text-black hover:bg-transparent hover:text-[var(--color-alpha)] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 Update {selectedUserIds.length} User{selectedUserIds.length !== 1 ? 's' : ''}
