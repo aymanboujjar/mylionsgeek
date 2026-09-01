@@ -8,9 +8,11 @@ use App\Models\AttendanceListe;
 use App\Models\Note;
 use App\Models\Formation;
 use App\Models\User;
+use App\Exceptions\FaceVerificationException;
 use App\Services\AttendanceCheckInService;
 use App\Services\AttendanceLegacyIdService;
 use App\Services\AttendancePersistenceService;
+use App\Services\FaceVerificationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -699,6 +701,7 @@ class TrainingController extends Controller
     public function checkIn(
         Request $request,
         AttendanceCheckInService $checkInService,
+        FaceVerificationService $faceService,
     ) {
         $checkResult = $this->checkRequestedUser();
         if ($checkResult) {
@@ -708,15 +711,43 @@ class TrainingController extends Controller
         $validated = $request->validate([
             'formation_id' => 'required|integer|exists:formations,id',
             'attendance_day' => 'nullable|date',
+            'live_photo' => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $authUser = Auth::guard('sanctum')->user();
         $attendanceDay = $checkInService->resolveAttendanceDay($validated['attendance_day'] ?? null);
 
+        if ($faceService->shouldBypass($authUser)) {
+            $verificationResult = [
+                'passed' => true,
+                'confidence' => null,
+                'method' => 'staff-bypass',
+            ];
+        } else {
+            try {
+                $verificationResult = $faceService->verify(
+                    $authUser,
+                    $request->file('live_photo'),
+                );
+            } catch (FaceVerificationException $e) {
+                return response()->json([
+                    'message' => 'Verification service unavailable. Please contact your teacher.',
+                ], 503);
+            }
+
+            if (! $verificationResult['passed']) {
+                return response()->json([
+                    'message' => 'Face not recognized. Please try again.',
+                    'error_code' => 'FACE_NOT_RECOGNIZED',
+                ], 422);
+            }
+        }
+
         return response()->json($checkInService->checkIn(
             $authUser,
             (int) $validated['formation_id'],
             $attendanceDay,
+            $verificationResult,
         ));
     }
 
