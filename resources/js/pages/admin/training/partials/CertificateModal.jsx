@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { programStatusLabel, PROGRAM_STATUS } from '@/components/helpers/userDemographics';
 import { saveAs } from 'file-saver';
 import {
     AlertTriangle,
@@ -16,7 +17,7 @@ import {
     Users,
     XCircle,
 } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 /* ─────────────────────────────────────────────
    Helpers
@@ -40,6 +41,33 @@ const trackMeta = (field) => {
     if (t === 'media') return { label: 'UGC · Digital Marketing', color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400' };
     return null;
 };
+
+/**
+ * Why a student cannot be certified, or null when they can be.
+ * Students who left the program are never eligible.
+ */
+const ineligibilityReason = (student) => {
+    if (student?.program_status === PROGRAM_STATUS.LEFT) {
+        return 'Left the program — cannot be certified';
+    }
+
+    if (
+        !student?.program_status &&
+        String(student?.status ?? '')
+            .trim()
+            .toLowerCase() === 'left'
+    ) {
+        return 'Left the program — cannot be certified';
+    }
+
+    if (!resolveTrack(student?.field)) {
+        return 'No valid track — will be skipped';
+    }
+
+    return null;
+};
+
+const isEligible = (student) => ineligibilityReason(student) === null;
 
 const attendanceColor = (pct) => {
     if (pct >= 80) return { bar: 'bg-green-500', text: 'text-green-600 dark:text-green-400' };
@@ -71,15 +99,18 @@ const AttendancePill = ({ score }) => {
 
 const StudentCard = ({ student, checked, onToggle }) => {
     const track = trackMeta(student.field);
-    const invalidTrack = !resolveTrack(student.field);
+    const blockedReason = ineligibilityReason(student);
+    const statusLabel = programStatusLabel(student.program_status);
 
     return (
         <label
             htmlFor={`cert-${student.id}`}
-            className={`group relative flex cursor-pointer items-center gap-3 rounded-xl border p-3.5 transition-all duration-150 select-none ${
+            className={`group relative flex items-center gap-3 rounded-xl border p-3.5 transition-all duration-150 select-none ${
+                blockedReason ? 'cursor-not-allowed' : 'cursor-pointer'
+            } ${
                 checked
                     ? 'border-alpha bg-alpha/8 shadow-sm shadow-alpha/15'
-                    : invalidTrack
+                    : blockedReason
                       ? 'border-dashed border-red-300/40 bg-red-500/5 opacity-70 dark:border-red-500/20'
                       : 'border-alpha/10 bg-light hover:border-alpha/30 hover:bg-alpha/5 dark:bg-dark dark:hover:border-alpha/25'
             }`}
@@ -88,7 +119,7 @@ const StudentCard = ({ student, checked, onToggle }) => {
                 id={`cert-${student.id}`}
                 checked={checked}
                 onCheckedChange={onToggle}
-                disabled={invalidTrack}
+                disabled={Boolean(blockedReason)}
                 className="h-4 w-4 flex-shrink-0 data-[state=checked]:border-alpha data-[state=checked]:bg-alpha"
             />
 
@@ -103,16 +134,22 @@ const StudentCard = ({ student, checked, onToggle }) => {
             <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold leading-tight text-dark dark:text-light">{student.name}</p>
 
-                {track && !invalidTrack && (
+                {track && !blockedReason && (
                     <span className={`mt-1 inline-block rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${track.color}`}>
                         {track.label}
                     </span>
                 )}
 
-                {invalidTrack && (
+                {statusLabel && (
+                    <span className="mt-1 inline-block rounded-md bg-dark/8 px-1.5 py-0.5 text-[10px] font-semibold text-dark/70 dark:bg-light/10 dark:text-light/70">
+                        {statusLabel}
+                    </span>
+                )}
+
+                {blockedReason && (
                     <p className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-red-500">
                         <XCircle className="h-3 w-3" />
-                        No valid track — will be skipped
+                        {blockedReason}
                     </p>
                 )}
 
@@ -134,7 +171,7 @@ const StudentCard = ({ student, checked, onToggle }) => {
 ───────────────────────────────────────────── */
 export default function CertificateModal({ open, onOpenChange, training }) {
     const students = training?.users ?? training?.students ?? [];
-    const eligibleStudents = students.filter((s) => resolveTrack(s.field));
+    const eligibleStudents = useMemo(() => students.filter(isEligible), [students]);
     const isGeekLab = isGeekLabTraining(training);
 
     const [selectedIds, setSelectedIds] = useState([]);
@@ -149,13 +186,31 @@ export default function CertificateModal({ open, onOpenChange, training }) {
     const allEligibleSelected =
         eligibleStudents.length > 0 && eligibleStudents.every((s) => selectedIds.includes(s.id));
 
-    const toggleSelectAll = useCallback(() => {
-        setSelectedIds(allEligibleSelected ? [] : eligibleStudents.map((s) => s.id));
-    }, [allEligibleSelected, eligibleStudents]);
+    const eligibleIds = useMemo(() => eligibleStudents.map((s) => s.id), [eligibleStudents]);
 
-    const toggleStudent = useCallback((id) => {
-        setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-    }, []);
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+
+        setSelectedIds((prev) => prev.filter((id) => eligibleIds.includes(id)));
+    }, [open, eligibleIds]);
+
+    const toggleSelectAll = useCallback(() => {
+        setSelectedIds(allEligibleSelected ? [] : eligibleIds);
+    }, [allEligibleSelected, eligibleIds]);
+
+    const toggleStudent = useCallback(
+        (id) => {
+            const student = students.find((s) => s.id === id);
+            if (student && !isEligible(student)) {
+                return;
+            }
+
+            setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+        },
+        [students],
+    );
 
     const resetForm = useCallback(() => {
         setSelectedIds([]);
@@ -289,7 +344,7 @@ export default function CertificateModal({ open, onOpenChange, training }) {
     };
 
     const datePreview = formatPreviewDate(issuedDate);
-    const selectionPct = eligibleStudents.length > 0 ? (selectedIds.length / eligibleStudents.length) * 100 : 0;
+    const selectionPct = students.length > 0 ? (selectedIds.length / students.length) * 100 : 0;
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -325,7 +380,7 @@ export default function CertificateModal({ open, onOpenChange, training }) {
                                     <Users className="h-4 w-4 text-alpha" />
                                     <span className="text-alpha">{selectedIds.length}</span>
                                     <span className="text-dark/30 dark:text-light/30">/</span>
-                                    <span className="text-dark/60 dark:text-light/60">{eligibleStudents.length}</span>
+                                    <span className="text-dark/60 dark:text-light/60">{students.length}</span>
                                 </div>
                                 {/* progress bar */}
                                 <div className="h-1.5 w-28 overflow-hidden rounded-full bg-alpha/10">

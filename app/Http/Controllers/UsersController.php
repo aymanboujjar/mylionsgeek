@@ -129,8 +129,8 @@ class UsersController extends Controller
                 'program_status' => function ($user) {
                     return match ($user->program_status) {
                         'active' => 'Active',
-                        'laureate' => 'Laureate',
-                        'alumni' => 'Alumni',
+                        'certified' => 'Certified',
+                        'not_certified' => 'Not Certified',
                         'left' => 'Left',
                         default => '',
                     };
@@ -1062,7 +1062,7 @@ class UsersController extends Controller
             'cin' => 'nullable|string',
             'gender' => 'nullable|in:male,female',
             'has_handicap' => 'nullable|in:0,1',
-            'program_status' => 'nullable|in:active,laureate,alumni,left',
+            'program_status' => 'nullable|in:active,certified,not_certified,left',
             'speciality' => 'nullable|string|max:255',
             'image' => 'nullable|image',
             'cover' => 'nullable|image', // <-- allow cover image

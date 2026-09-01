@@ -8,12 +8,19 @@ export const HANDICAP_OPTIONS = [
     { value: '0', label: 'Non' },
 ];
 
-/** LionsGEEK association / program lifecycle — separate from life status (Working, Studying…). */
+/** LionsGEEK program lifecycle — separate from life status (Working, Studying…). */
+export const PROGRAM_STATUS = {
+    ACTIVE: 'active',
+    CERTIFIED: 'certified',
+    NOT_CERTIFIED: 'not_certified',
+    LEFT: 'left',
+};
+
 export const PROGRAM_STATUS_OPTIONS = [
-    { value: 'active', label: 'Active' },
-    { value: 'laureate', label: 'Laureate' },
-    { value: 'alumni', label: 'Alumni' },
-    { value: 'left', label: 'Left' },
+    { value: PROGRAM_STATUS.ACTIVE, label: 'Active' },
+    { value: PROGRAM_STATUS.CERTIFIED, label: 'Certified' },
+    { value: PROGRAM_STATUS.NOT_CERTIFIED, label: 'Not Certified' },
+    { value: PROGRAM_STATUS.LEFT, label: 'Left' },
 ];
 
 export const genderLabel = (gender) => {
