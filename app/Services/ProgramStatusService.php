@@ -5,6 +5,13 @@ namespace App\Services;
 use App\Models\Formation;
 use App\Models\User;
 
+/**
+ * Owns every transition of the `program_status` column.
+ *
+ * The program lifecycle is deliberately independent of the `status` column,
+ * which records life situation (Working, Studying…). Nothing here reads or
+ * writes `status`.
+ */
 class ProgramStatusService
 {
     public const ACTIVE = 'active';
@@ -58,11 +65,47 @@ class ProgramStatusService
     }
 
     /**
-     * New enrollments start as active in the program lifecycle.
+     * Mark a user as active in the program when they join a training.
+     *
+     * Only fills an empty value. Re-adding a former student to a new cohort must
+     * not silently erase their 'left' or 'not_certified' record.
+     *
+     * @return bool True when the status was written.
+     */
+    public function markActiveOnEnrollment(User $user): bool
+    {
+        if (filled($user->program_status)) {
+            return false;
+        }
+
+        $user->program_status = self::ACTIVE;
+        $user->save();
+
+        return true;
+    }
+
+    /**
+     * Set active on the in-memory model when enrolling (caller saves).
+     *
+     * Only fills an empty value — same guard as markActiveOnEnrollment().
      */
     public function applyEnrollmentStatus(User $user): void
     {
+        if (filled($user->program_status)) {
+            return;
+        }
+
         $user->program_status = self::ACTIVE;
+    }
+
+    /**
+     * The program status a brand-new user should be created with.
+     *
+     * Users created without a training (staff, recruiters, coworkers) stay null.
+     */
+    public function initialProgramStatusFor(?int $formationId): ?string
+    {
+        return filled($formationId) ? self::ACTIVE : null;
     }
 
     /**

@@ -328,10 +328,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                         <Label htmlFor="phone">Phone</Label>
                         <Input id="phone" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
                     </div>
-                    {/* After phone: Genre, Program status, Status */}
                     {canEditOthers && (
                         <div className="col-span-1">
-                            <Label>Genre</Label>
+                            <Label>Gender</Label>
                             <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select gender" />

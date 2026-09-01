@@ -7,12 +7,13 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Renames program_status values for clearer certificate wording:
- *   laureate -> certified
- *   alumni   -> not_certified
+ *   laureate  -> certified
+ *   alumni    -> not_certified
+ *   completed -> not_certified  (intermediate rename from a prior migration)
  */
 return new class extends Migration
 {
-    private const OLD_VALUES = ['active', 'laureate', 'alumni', 'left'];
+    private const OLD_VALUES = ['active', 'laureate', 'alumni', 'completed', 'left'];
 
     private const NEW_VALUES = ['active', 'certified', 'not_certified', 'left'];
 
@@ -21,6 +22,7 @@ return new class extends Migration
         $this->rewriteEnum(self::NEW_VALUES, [
             'laureate' => 'certified',
             'alumni' => 'not_certified',
+            'completed' => 'not_certified',
         ]);
     }
 

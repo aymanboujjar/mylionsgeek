@@ -346,6 +346,12 @@ export default function CertificateModal({ open, onOpenChange, training }) {
     const datePreview = formatPreviewDate(issuedDate);
     const selectionPct = students.length > 0 ? (selectedIds.length / students.length) * 100 : 0;
 
+    // Printing marks every unselected student who is still active as Completed,
+    // so show that count up front — it is not reversible from this screen.
+    const willBeCompletedCount = students.filter(
+        (student) => student.program_status === PROGRAM_STATUS.ACTIVE && !selectedIds.includes(student.id),
+    ).length;
+
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent className="max-w-3xl gap-0 overflow-hidden border border-alpha/15 bg-light p-0 text-dark shadow-2xl shadow-black/20 dark:bg-dark dark:text-light [&>button]:hidden">
@@ -447,6 +453,18 @@ export default function CertificateModal({ open, onOpenChange, training }) {
                     <div className="flex items-start gap-2 border-b border-red-500/20 bg-red-500/8 px-6 py-3 text-sm text-red-700 dark:text-red-300">
                         <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                         <span>{error}</span>
+                    </div>
+                )}
+
+                {!success && willBeCompletedCount > 0 && (
+                    <div className="flex items-start gap-2 border-b border-amber-500/20 bg-amber-500/8 px-6 py-3 text-sm text-amber-800 dark:text-amber-200">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                        <span>
+                            <span className="font-semibold">{willBeCompletedCount}</span> unselected student
+                            {willBeCompletedCount > 1 ? 's' : ''} will be marked{' '}
+                            <span className="font-semibold">Completed</span> (finished without a certificate). Select
+                            them too if they are still training.
+                        </span>
                     </div>
                 )}
 

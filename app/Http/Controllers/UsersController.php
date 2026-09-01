@@ -46,6 +46,12 @@ use App\Services\UserProfileStatsService;
 
 class UsersController extends Controller
 {
+    /**
+     * Columns removed from an export when the requester is not an admin or super_admin.
+     * `has_handicap` is health data, so it is restricted at least as tightly as `cin`.
+     */
+    private const RESTRICTED_EXPORT_FIELDS = ['cin', 'phone', 'role', 'has_handicap'];
+
     public function index()
     {
         $allUsers = User::query()
@@ -136,7 +142,7 @@ class UsersController extends Controller
                         return '';
                     }
 
-                    return ((int) $user->has_handicap === 1) ? 'Oui' : 'Non';
+                    return $user->has_handicap ? 'Yes' : 'No';
                 },
                 'program_status' => function ($user) {
                     return match ($user->program_status) {
@@ -1209,7 +1215,7 @@ class UsersController extends Controller
     }
 
     //! store function
-    public function store(Request $request)
+    public function store(Request $request, ProgramStatusService $programStatusService)
     {
         $validated = $request->validate([
             'name' => 'required|string',
@@ -1261,6 +1267,7 @@ class UsersController extends Controller
             'status' => $validated['status'] ?? $defaultStatus,
             'cin' => $validated['cin'] ?? null,
             'formation_id' => $validated['formation_id'],
+            'program_status' => $programStatusService->initialProgramStatusFor($validated['formation_id'] ?? null),
             'account_state' => $validated['account_state'] ?? 'active',
             'access_studio' => $validated['access_studio'],
             'access_cowork' => $validated['access_cowork'],

@@ -136,6 +136,7 @@ const UsersTable = ({ users, filters, roles = [], trainings = [], status }) => {
                             </TableCell>
                             <TableCell className="font-medium">{user.email}</TableCell>
                             <TableCell className="font-medium">{genderLabel(user.gender) || '—'}</TableCell>
+                            <TableCell className="font-medium">{user.status || '—'}</TableCell>
                             <TableCell className="font-medium">{programStatusLabel(user.program_status) || '—'}</TableCell>
                             <TableCell>
                                 <div className="flex flex-wrap gap-2">
