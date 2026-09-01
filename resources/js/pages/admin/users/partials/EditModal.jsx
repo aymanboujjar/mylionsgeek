@@ -15,6 +15,8 @@ import {
     handicapSelectValue,
     PROGRAM_STATUS,
     PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS,
+    canAssignProgramStatusLeft,
+    canViewHealthData,
 } from '@/components/helpers/userDemographics';
 import Rolegard from '../../../../components/rolegard';
 import RolesMultiSelect from './RolesMultiSelect';
@@ -65,6 +67,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
     const isStudying = editedUser?.status?.toLowerCase() === 'studying';
     const showStatusField = canEditOthers || !isEditingSelf || !isStudying;
 
+    const canAssignLeft = canAssignProgramStatusLeft(userRolesLower);
+    const canEditHealthData = canViewHealthData(userRolesLower);
+
     const statusOptions = useMemo(
         () =>
             resolveStatusOptions({
@@ -88,7 +93,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         cin: editedUser?.cin ?? '',
         gender: editedUser?.gender || 'none',
         has_handicap: handicapSelectValue(editedUser?.has_handicap),
-        program_status: editedUser?.program_status || 'all',
+        program_status: editedUser?.program_status || PROGRAM_STATUS.ACTIVE,
         speciality: editedUser?.speciality ?? '',
         image: editedUser?.image || null,
         resumeFile: null,
@@ -135,7 +140,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                 cin: editedUser.cin ?? '',
                 gender: editedUser.gender || 'none',
                 has_handicap: handicapSelectValue(editedUser.has_handicap),
-                program_status: editedUser.program_status || 'all',
+                program_status: editedUser.program_status || PROGRAM_STATUS.ACTIVE,
                 speciality: editedUser.speciality ?? '',
                 image: editedUser?.image || null,
                 resumeFile: null,
@@ -229,7 +234,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
 
         if (canEditOthers) {
             form.append('gender', formData.gender === 'none' ? '' : formData.gender);
-            form.append('has_handicap', formData.has_handicap === 'none' ? '' : formData.has_handicap);
+            if (canEditHealthData) {
+                form.append('has_handicap', formData.has_handicap === 'none' ? '' : formData.has_handicap);
+            }
             form.append('program_status', formData.program_status === 'all' ? '' : formData.program_status);
         }
 
@@ -351,9 +358,12 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                                     <SelectValue placeholder="Select program status" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All</SelectItem>
                                     <SelectItem value={PROGRAM_STATUS.ACTIVE}>Active</SelectItem>
-                                    <SelectItem value={PROGRAM_STATUS.LEFT}>Left</SelectItem>
+                                    {(canAssignLeft ||
+                                        formData.program_status === PROGRAM_STATUS.LEFT ||
+                                        editedUser?.program_status === PROGRAM_STATUS.LEFT) && (
+                                        <SelectItem value={PROGRAM_STATUS.LEFT}>Left</SelectItem>
+                                    )}
                                     <SelectGroup>
                                         <SelectLabel>Certificate &amp; Not Certificate</SelectLabel>
                                         {PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS.map((option) => (
@@ -389,7 +399,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                             <Input id="cin" value={formData.cin || ''} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} />
                         </div>
                     )}
-                    {canEditOthers && (
+                    {canEditHealthData && (
                         <div className="col-span-1">
                             <Label>Handicap</Label>
                             <Select value={formData.has_handicap} onValueChange={(v) => setFormData({ ...formData, has_handicap: v })}>

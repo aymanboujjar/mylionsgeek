@@ -3,9 +3,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { GENDER_OPTIONS, HANDICAP_OPTIONS, PROGRAM_STATUS_FILTER_OPTIONS } from '@/components/helpers/userDemographics';
+import { GENDER_OPTIONS, HANDICAP_OPTIONS, PROGRAM_STATUS_FILTER_OPTIONS, canViewHealthData } from '@/components/helpers/userDemographics';
 import { Filter, RotateCw, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { usePage } from '@inertiajs/react';
 
 const displayRole = (role) => (role === 'studio_responsable' ? 'Responsable Studio' : role);
 
@@ -25,6 +26,9 @@ const FALLBACK_FILTERS = {
 const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, fields = [], initialFilters }) => {
     const [open, setOpen] = useState(false);
     const resetValues = initialFilters ? { ...initialFilters } : FALLBACK_FILTERS;
+    const { auth } = usePage().props;
+    const userRoles = Array.isArray(auth?.user?.role) ? auth.user.role : [auth?.user?.role].filter(Boolean);
+    const showHandicapFilter = canViewHealthData(userRoles);
 
     const handleChange = (field, value) => {
         setFilters((prev) => ({ ...prev, [field]: value }));
@@ -38,7 +42,7 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, f
         if (filters.role) count += 1;
         if (filters.status) count += 1;
         if (filters.gender) count += 1;
-        if (filters.has_handicap !== '' && filters.has_handicap !== null && filters.has_handicap !== undefined) count += 1;
+        if (showHandicapFilter && filters.has_handicap !== '' && filters.has_handicap !== null && filters.has_handicap !== undefined) count += 1;
         if (filters.program_status && filters.program_status !== 'all') count += 1;
         return count;
     }, [filters]);
@@ -98,7 +102,9 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, f
                 <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Filters</DialogTitle>
-                        <DialogDescription>Filter users by training, role, gender, handicap, and more.</DialogDescription>
+                        <DialogDescription>
+                            Filter users by training, role, gender{showHandicapFilter ? ', handicap' : ''}, and more.
+                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
@@ -225,25 +231,31 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, f
                             </Select>
                         </div>
 
-                        <div className="space-y-2">
-                            <Label>Handicap</Label>
-                            <Select
-                                value={filters.has_handicap === '' || filters.has_handicap === null || filters.has_handicap === undefined ? 'all' : String(filters.has_handicap)}
-                                onValueChange={(e) => handleChange('has_handicap', e === 'all' ? '' : e)}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select By Handicap" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All</SelectItem>
-                                    {HANDICAP_OPTIONS.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                            {option.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
+                        {showHandicapFilter && (
+                            <div className="space-y-2">
+                                <Label>Handicap</Label>
+                                <Select
+                                    value={
+                                        filters.has_handicap === '' || filters.has_handicap === null || filters.has_handicap === undefined
+                                            ? 'all'
+                                            : String(filters.has_handicap)
+                                    }
+                                    onValueChange={(e) => handleChange('has_handicap', e === 'all' ? '' : e)}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select By Handicap" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All</SelectItem>
+                                        {HANDICAP_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
 
                         <div className="space-y-2">
                             <Label>Program status</Label>

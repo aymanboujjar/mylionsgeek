@@ -1,8 +1,8 @@
-/** Status values admins can assign (Title Case, matches DB convention). */
-export const ADMIN_USER_STATUSES = ['Working', 'Studying', 'Internship', 'Unemployed', 'Freelancing', 'Left', 'Certified'];
+/** Life / professional status — separate from program_status (training lifecycle). */
+export const ADMIN_USER_STATUSES = ['Working', 'Studying', 'Internship', 'Unemployed', 'Freelancing'];
 
-/** Statuses a student may choose after training (Studying is excluded). */
-export const STUDENT_EDITABLE_STATUSES = ['Working', 'Internship', 'Unemployed', 'Freelancing', 'Certified', 'Left'];
+/** Students may update their life status after training (Studying is set on create). */
+export const STUDENT_EDITABLE_STATUSES = ['Working', 'Internship', 'Unemployed', 'Freelancing'];
 
 // Match a stored status string to one of the select option values (case-insensitive).
 export function normalizeStatusForSelect(rawStatus, options) {

@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\AttendanceCheckInService;
 use App\Services\AttendanceLegacyIdService;
 use App\Services\AttendancePersistenceService;
+use App\Services\ProgramStatusService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -340,7 +341,7 @@ class TrainingController extends Controller
         ]);
     }
 
-    public function addStudent(Request $request, $id)
+    public function addStudent(Request $request, $id, ProgramStatusService $programStatusService)
     {
         $checkResult = $this->checkRequestedUser();
         if ($checkResult) {
@@ -356,6 +357,7 @@ class TrainingController extends Controller
         
         if ($user) {
             $user->formation_id = $training->id;
+            $programStatusService->applyEnrollmentStatus($user);
             $user->save();
         }
 
@@ -386,7 +388,7 @@ class TrainingController extends Controller
         ]);
     }
 
-    public function bulkUpdateUsers(Request $request, $id)
+    public function bulkUpdateUsers(Request $request, $id, ProgramStatusService $programStatusService)
     {
         $checkResult = $this->checkRequestedUser();
         if ($checkResult) {
@@ -413,6 +415,25 @@ class TrainingController extends Controller
         ]);
 
         $training = Formation::findOrFail($id);
+
+        if ($request->exists('program_status')) {
+            $programStatus = $request->input('program_status');
+            if ($programStatus !== null && $programStatus !== '') {
+                $programStatusService->assertCanAssignLeft($actor, $programStatus, $training);
+            }
+        }
+
+        if ($request->exists('has_handicap')) {
+            $actorRoles = is_array($actor->role) ? $actor->role : array_filter([(string) $actor->role]);
+            $canViewHealthData = count(array_intersect($actorRoles, ['admin', 'super_admin'])) > 0;
+            if (! $canViewHealthData) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only admins can update handicap data.',
+                ], 403);
+            }
+        }
+
         $users = User::whereIn('id', $validated['user_ids'])
             ->where('formation_id', $training->id)
             ->get();

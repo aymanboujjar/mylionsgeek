@@ -91,7 +91,7 @@ const UsersTable = ({ users, filters, roles = [], trainings = [], status }) => {
                         <TableHead>Access</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Gender</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead>Program status</TableHead>
                         <TableHead>Role</TableHead>
                         <Rolegard authorized={['admin', 'super_admin']}>
                             <TableHead>Menu</TableHead>

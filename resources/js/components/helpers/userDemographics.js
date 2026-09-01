@@ -50,6 +50,40 @@ export const matchesProgramStatusFilter = (userProgramStatus, filterValue) => {
     return (userProgramStatus || '') === filterValue;
 };
 
+const normalizeRoles = (roles) => {
+    const list = Array.isArray(roles) ? roles : [roles];
+    return list.filter(Boolean).map((role) => String(role).toLowerCase());
+};
+
+/** Health data (handicap) — admin / super_admin only. */
+export const canViewHealthData = (roles) => {
+    const normalized = normalizeRoles(roles);
+    return normalized.some((role) => ['admin', 'super_admin'].includes(role));
+};
+
+/** Only admins and coaches may assign program status "left". */
+export const canAssignProgramStatusLeft = (roles, { isTrainingCoach = false, requireTrainingCoach = false } = {}) => {
+    const normalized = normalizeRoles(roles);
+
+    if (normalized.some((role) => ['admin', 'super_admin'].includes(role))) {
+        return true;
+    }
+
+    if (normalized.includes('coach')) {
+        return requireTrainingCoach ? isTrainingCoach : true;
+    }
+
+    return false;
+};
+
+/** Program status options for edit/bulk forms; keeps Left visible when already set. */
+export const resolveProgramStatusEditOptions = (currentProgramStatus, roles, options = {}) => {
+    const canAssignLeft =
+        canAssignProgramStatusLeft(roles, options) || currentProgramStatus === PROGRAM_STATUS.LEFT;
+
+    return PROGRAM_STATUS_OPTIONS.filter((option) => option.value !== PROGRAM_STATUS.LEFT || canAssignLeft);
+};
+
 export const genderLabel = (gender) => {
     if (gender === 'male') return 'Male';
     if (gender === 'female') return 'Female';

@@ -20,7 +20,7 @@ export default function CertifiedLinkedInShareModal() {
     const shouldShow = Boolean(
         user &&
             isStudentLike &&
-            user.status === 'Certified' &&
+            user.program_status === 'certified' &&
             !user.linkedin_share_prompted_at &&
             !user.linkedin_share_dismissed_at &&
             !user.linkedin_shared_at,
@@ -28,7 +28,7 @@ export default function CertifiedLinkedInShareModal() {
 
     // Temporary debug — remove once the modal is confirmed working
     console.log('[CertifiedModal]', {
-        status: user?.status,
+        program_status: user?.program_status,
         isStudentLike,
         linkedin_share_prompted_at: user?.linkedin_share_prompted_at,
         linkedin_share_dismissed_at: user?.linkedin_share_dismissed_at,

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\LinkedAccount;
 use App\Models\AppSetting;
+use App\Services\ProgramStatusService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -199,8 +200,8 @@ class LinkedInController extends Controller
         $user = $request->user();
         if (! $user) abort(401);
 
-        if ((string) ($user->status ?? '') !== 'Certified') {
-            return response()->json(['error' => 'Only Certified users can share a certificate.'], 403);
+        if ((string) ($user->program_status ?? '') !== ProgramStatusService::CERTIFIED) {
+            return response()->json(['error' => 'Only certified students can share a certificate.'], 403);
         }
 
         $linked = LinkedAccount::query()

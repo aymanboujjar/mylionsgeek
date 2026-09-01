@@ -15,6 +15,8 @@ use App\Services\CertificateTrackResolver;
 use App\Services\CoachAttendanceSaveService;
 use App\Services\DisciplineService;
 use App\Services\GeekLabCertificateCodeAllocator;
+use App\Services\ProgramStatusService;
+use App\Services\UserLifeStatusService;
 use App\Services\StudentCheckInSlotService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -98,8 +100,13 @@ class FormationController extends Controller
         // Attach the discipline score to every enrolled user so the frontend
         // can display the attendance percentage without extra API calls.
         $disciplineService = new \App\Services\DisciplineService;
-        $training->users->each(function (User $user) use ($disciplineService) {
+        $canViewHealthData = $this->actorCanViewHealthData(Auth::user());
+        $training->users->each(function (User $user) use ($disciplineService, $canViewHealthData) {
             $user->discipline = $disciplineService->calculateDisciplineScore($user);
+
+            if (! $canViewHealthData) {
+                $user->makeHidden(['has_handicap']);
+            }
         });
 
         return inertia('admin/training/[id]', [
@@ -148,7 +155,7 @@ class FormationController extends Controller
     }
 
     // ///////////////////
-    public function addStudent(Formation $training, Request $request)
+    public function addStudent(Formation $training, Request $request, ProgramStatusService $programStatusService)
     {
         $validated = $request->validate([
             'student_id' => 'required|exists:users,id',
@@ -157,6 +164,7 @@ class FormationController extends Controller
         $user = User::find($validated['student_id']);
         if ($user) {
             $user->formation_id = $training->id;
+            $programStatusService->applyEnrollmentStatus($user);
             $user->save();
         }
 
@@ -462,7 +470,7 @@ class FormationController extends Controller
     }
 
     // Bulk update users roles, program status, and handicap
-    public function bulkUpdateUsers(Formation $training, Request $request)
+    public function bulkUpdateUsers(Formation $training, Request $request, ProgramStatusService $programStatusService)
     {
         $validated = $request->validate([
             'user_ids' => 'required|array|min:1',
@@ -472,6 +480,18 @@ class FormationController extends Controller
             'program_status' => 'nullable|in:active,certified,not_certified,left',
             'has_handicap' => 'nullable|in:0,1',
         ]);
+
+        $actor = Auth::user();
+        if ($request->exists('program_status')) {
+            $programStatus = $request->input('program_status');
+            if ($programStatus !== null && $programStatus !== '') {
+                $programStatusService->assertCanAssignLeft($actor, $programStatus, $training);
+            }
+        }
+
+        if ($request->exists('has_handicap') && ! $this->actorCanViewHealthData($actor)) {
+            abort(403, 'Only admins can update handicap data.');
+        }
 
         $users = User::whereIn('id', $validated['user_ids'])
             ->where('formation_id', $training->id)
@@ -549,6 +569,7 @@ class FormationController extends Controller
         CertificateTrackResolver $trackResolver,
         CertificatePdfGenerator $pdfGenerator,
         GeekLabCertificateCodeAllocator $codeAllocator,
+        ProgramStatusService $programStatusService,
     ) {
         if (! $this->canPrintCertificates($training)) {
             abort(403, 'You are not allowed to print certificates for this training.');
@@ -586,8 +607,19 @@ class FormationController extends Controller
         $savedCount = 0;
         $skipped = [];
         $usedZipNames = [];
+        $certifiedUserIds = [];
 
         foreach ($users as $user) {
+            if ($programStatusService->isLeft($user->program_status, $user->status)) {
+                $skipped[] = [
+                    'id' => $user->id,
+                    'name' => (string) $user->name,
+                    'reason' => 'Left the program — cannot be certified.',
+                ];
+
+                continue;
+            }
+
             $track = $isGeekLab
                 ? $trackResolver->resolveForTraining($user->field ?? null, $trainingName)
                 : $trackResolver->resolve($user->field ?? null);
@@ -632,12 +664,17 @@ class FormationController extends Controller
                 $this->storeCertificatePdf($user, $pdfStoragePath, $pdfBytes);
 
                 $certFields = [
-                    'status' => 'Certified',
+                    'program_status' => ProgramStatusService::CERTIFIED,
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
                     'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
                     'certificate_pdf_path' => $pdfStoragePath,
                 ];
+                if ($user->program_status !== ProgramStatusService::CERTIFIED) {
+                    $certFields['linkedin_share_prompted_at'] = null;
+                    $certFields['linkedin_share_dismissed_at'] = null;
+                    $certFields['linkedin_shared_at'] = null;
+                }
                 if ($isGeekLab && $certificateCode !== null) {
                     $certFields['certificate_code'] = $certificateCode;
                 }
@@ -646,6 +683,7 @@ class FormationController extends Controller
 
                 $zip->addFromString($zipEntryName, $pdfBytes);
                 $savedCount++;
+                $certifiedUserIds[] = (int) $user->id;
             } catch (\Throwable $e) {
                 Log::error('Failed to generate certificate', [
                     'training_id' => $training->id,
@@ -674,6 +712,8 @@ class FormationController extends Controller
             );
         }
 
+        $programStatusService->markUnselectedActiveStudentsAsNotCertified($training, $certifiedUserIds);
+
         return response()
             ->download($tmpZipPath, 'certificats-'.$training->id.'.zip', [
                 'Content-Type' => 'application/zip',
@@ -683,7 +723,7 @@ class FormationController extends Controller
     }
 
     /**
-     * GeekLab: generate PDFs, store them, mark students Certified, queue email jobs.
+     * GeekLab: generate PDFs, store them, update program_status, queue email jobs.
      */
     public function emailGeekLabCertificates(
         Formation $training,
@@ -691,6 +731,7 @@ class FormationController extends Controller
         CertificateTrackResolver $trackResolver,
         CertificatePdfGenerator $pdfGenerator,
         GeekLabCertificateCodeAllocator $codeAllocator,
+        ProgramStatusService $programStatusService,
     ) {
         if (! $this->canPrintCertificates($training)) {
             abort(403, 'You are not allowed to print certificates for this training.');
@@ -724,8 +765,19 @@ class FormationController extends Controller
         $queuedCount = 0;
         $skipped = [];
         $trainingName = (string) $training->name;
+        $certifiedUserIds = [];
 
         foreach ($users as $user) {
+            if ($programStatusService->isLeft($user->program_status, $user->status)) {
+                $skipped[] = [
+                    'id' => $user->id,
+                    'name' => (string) $user->name,
+                    'reason' => 'Left the program — cannot be certified.',
+                ];
+
+                continue;
+            }
+
             $track = $trackResolver->resolveForTraining($user->field ?? null, $trainingName);
             if ($track === null) {
                 $skipped[] = [
@@ -774,17 +826,25 @@ class FormationController extends Controller
                 $this->storeCertificatePdf($user, $pdfStoragePath, $pdfBytes);
 
                 // Certify immediately when PDF is stored and the email job is queued.
-                $user->forceFill([
-                    'status' => 'Certified',
+                $certFields = [
+                    'program_status' => ProgramStatusService::CERTIFIED,
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
                     'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
                     'certificate_pdf_path' => $pdfStoragePath,
                     'certificate_code' => $certificateCode,
-                ])->save();
+                ];
+                if ($user->program_status !== ProgramStatusService::CERTIFIED) {
+                    $certFields['linkedin_share_prompted_at'] = null;
+                    $certFields['linkedin_share_dismissed_at'] = null;
+                    $certFields['linkedin_shared_at'] = null;
+                }
+
+                $user->forceFill($certFields)->save();
 
                 SendGeekLabCertificateEmail::dispatch($user, $pdfStoragePath, $trainingName);
                 $queuedCount++;
+                $certifiedUserIds[] = (int) $user->id;
             } catch (\Throwable $e) {
                 Log::error('Failed to generate/queue GeekLab certificate', [
                     'training_id' => $training->id,
@@ -808,6 +868,8 @@ class FormationController extends Controller
                 ['skipped' => $skipped],
             );
         }
+
+        $programStatusService->markUnselectedActiveStudentsAsNotCertified($training, $certifiedUserIds);
 
         return response()->json([
             'success' => true,
@@ -888,5 +950,16 @@ class FormationController extends Controller
         }
 
         return back()->with('error', $message);
+    }
+
+    private function actorCanViewHealthData(?User $actor): bool
+    {
+        if (! $actor) {
+            return false;
+        }
+
+        $roles = is_array($actor->role) ? $actor->role : array_filter([(string) $actor->role]);
+
+        return count(array_intersect($roles, ['admin', 'super_admin'])) > 0;
     }
 }

@@ -3,6 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
+    canAssignProgramStatusLeft,
+    canViewHealthData,
     HANDICAP_OPTIONS,
     PROGRAM_STATUS,
     PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS,
@@ -49,6 +51,11 @@ export default function Show({ training, usersNull, courses = [] }) {
     const isTrainingCoach = auth?.user?.id && training?.coach?.id ? auth.user.id === training.coach.id : false;
     const isAdminRole = userRoles.some((r) => ['admin', 'super_admin'].includes(r));
     const canPrintCertificates = isAdminRole || (isCoachRole && isTrainingCoach);
+    const canAssignProgramStatusLeftOnTraining = canAssignProgramStatusLeft(userRoles, {
+        requireTrainingCoach: true,
+        isTrainingCoach,
+    });
+    const canEditHealthData = canViewHealthData(userRoles);
     // Staff-controlled gate (formations.is_active). Replaces the old nonexistent training.status field.
     const isActiveTraining = !!training?.is_active;
     const [students, setStudents] = useState(training.users || []);
@@ -337,8 +344,10 @@ export default function Show({ training, usersNull, courses = [] }) {
     };
 
     const getDefaultSlots = (student, dateStr = selectedDate) => {
-        const status = String(student?.status || '').toLowerCase();
-        if (status === 'left') {
+        const legacyLeft = String(student?.status || '').toLowerCase() === 'left';
+        const programLeft = student?.program_status === PROGRAM_STATUS.LEFT;
+
+        if (legacyLeft || programLeft) {
             return { morning: 'absent', lunch: 'absent', evening: 'absent', notes: [] };
         }
 
@@ -1329,16 +1338,22 @@ export default function Show({ training, usersNull, courses = [] }) {
                                                 <p className="text-xs text-dark/70 dark:text-light/70">{student.email}</p>
                                                 <div className="mt-1 text-xs text-dark/60 dark:text-light/60">
                                                     Role: {Array.isArray(student.role) ? student.role.join(', ') : student.role || 'N/A'} | Program status:{' '}
-                                                    {programStatusLabel(student.program_status) || 'N/A'} | Handicap:{' '}
-                                                    {student.has_handicap === true ||
-                                                    student.has_handicap === 1 ||
-                                                    student.has_handicap === '1'
-                                                        ? 'Oui'
-                                                        : student.has_handicap === false ||
-                                                            student.has_handicap === 0 ||
-                                                            student.has_handicap === '0'
-                                                          ? 'Non'
-                                                          : 'N/A'}
+                                                    {programStatusLabel(student.program_status) || 'N/A'}
+                                                    {canEditHealthData && (
+                                                        <>
+                                                            {' '}
+                                                            | Handicap:{' '}
+                                                            {student.has_handicap === true ||
+                                                            student.has_handicap === 1 ||
+                                                            student.has_handicap === '1'
+                                                                ? 'Oui'
+                                                                : student.has_handicap === false ||
+                                                                    student.has_handicap === 0 ||
+                                                                    student.has_handicap === '0'
+                                                                  ? 'Non'
+                                                                  : 'N/A'}
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -1366,9 +1381,10 @@ export default function Show({ training, usersNull, courses = [] }) {
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="keep-existing">Keep existing program status</SelectItem>
-                                                <SelectItem value="all">All</SelectItem>
                                                 <SelectItem value={PROGRAM_STATUS.ACTIVE}>Active</SelectItem>
-                                                <SelectItem value={PROGRAM_STATUS.LEFT}>Left</SelectItem>
+                                                {canAssignProgramStatusLeftOnTraining && (
+                                                    <SelectItem value={PROGRAM_STATUS.LEFT}>Left</SelectItem>
+                                                )}
                                                 <SelectGroup>
                                                     <SelectLabel>Certificate &amp; Not Certificate</SelectLabel>
                                                     {PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS.map((option) => (
@@ -1381,25 +1397,27 @@ export default function Show({ training, usersNull, courses = [] }) {
                                         </Select>
                                     </div>
 
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium">Update Handicap (optional)</label>
-                                        <Select
-                                            value={bulkHasHandicap || undefined}
-                                            onValueChange={(value) => setBulkHasHandicap(value === 'keep-existing' ? '' : value)}
-                                        >
-                                            <SelectTrigger className="w-full">
-                                                <SelectValue placeholder="Select handicap (optional)" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="keep-existing">Keep existing handicap</SelectItem>
-                                                {HANDICAP_OPTIONS.map((option) => (
-                                                    <SelectItem key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
+                                    {canEditHealthData && (
+                                        <div>
+                                            <label className="mb-2 block text-sm font-medium">Update Handicap (optional)</label>
+                                            <Select
+                                                value={bulkHasHandicap || undefined}
+                                                onValueChange={(value) => setBulkHasHandicap(value === 'keep-existing' ? '' : value)}
+                                            >
+                                                <SelectTrigger className="w-full">
+                                                    <SelectValue placeholder="Select handicap (optional)" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="keep-existing">Keep existing handicap</SelectItem>
+                                                    {HANDICAP_OPTIONS.map((option) => (
+                                                        <SelectItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -1435,7 +1453,7 @@ export default function Show({ training, usersNull, courses = [] }) {
                                         formData.program_status = bulkProgramStatus === 'all' ? '' : bulkProgramStatus;
                                     }
 
-                                    if (bulkHasHandicap && bulkHasHandicap !== 'keep-existing') {
+                                    if (canEditHealthData && bulkHasHandicap && bulkHasHandicap !== 'keep-existing') {
                                         formData.has_handicap = bulkHasHandicap;
                                     }
 
@@ -1456,7 +1474,7 @@ export default function Show({ training, usersNull, courses = [] }) {
                                     selectedUserIds.length === 0 ||
                                     (bulkRoles.length === 0 &&
                                         (!bulkProgramStatus || bulkProgramStatus === 'keep-existing') &&
-                                        (!bulkHasHandicap || bulkHasHandicap === 'keep-existing'))
+                                        (!canEditHealthData || !bulkHasHandicap || bulkHasHandicap === 'keep-existing'))
                                 }
                                 className="border border-[var(--color-alpha)] bg-[var(--color-alpha)] text-black hover:bg-transparent hover:text-[var(--color-alpha)] disabled:cursor-not-allowed disabled:opacity-50"
                             >
