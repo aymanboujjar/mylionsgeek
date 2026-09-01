@@ -69,30 +69,80 @@ return new class extends Migration
      */
     private function rewriteEnumForSqlite(array $targetValues, array $remap): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->string('program_status_tmp')->nullable();
-        });
+        if ($this->sqliteEnumRewriteComplete($remap)) {
+            return;
+        }
 
-        DB::table('users')->orderBy('id')->each(function ($user) use ($remap) {
-            $current = $user->program_status;
-            $mapped = $remap[$current] ?? $current;
+        $hasProgramStatus = Schema::hasColumn('users', 'program_status');
+        $hasTmp = Schema::hasColumn('users', 'program_status_tmp');
 
-            DB::table('users')->where('id', $user->id)->update(['program_status_tmp' => $mapped]);
-        });
+        if (! $hasTmp) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->string('program_status_tmp')->nullable();
+            });
+        }
 
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn('program_status');
-        });
+        if ($hasProgramStatus) {
+            $this->copyProgramStatusToSqliteTmp($remap);
 
-        Schema::table('users', function (Blueprint $table) use ($targetValues) {
-            $table->enum('program_status', $targetValues)->nullable();
-        });
+            Schema::table('users', function (Blueprint $table) {
+                $table->dropColumn('program_status');
+            });
+
+            $hasProgramStatus = false;
+        }
+
+        if (! Schema::hasColumn('users', 'program_status')) {
+            Schema::table('users', function (Blueprint $table) use ($targetValues) {
+                $table->enum('program_status', $targetValues)->nullable();
+            });
+        }
 
         DB::table('users')->update(['program_status' => DB::raw('program_status_tmp')]);
 
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn('program_status_tmp');
-        });
+        if (Schema::hasColumn('users', 'program_status_tmp')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->dropColumn('program_status_tmp');
+            });
+        }
+
+        foreach ($remap as $from => $to) {
+            DB::table('users')->where('program_status', $from)->update(['program_status' => $to]);
+        }
+    }
+
+    /**
+     * @param  array<string, string>  $remap
+     */
+    private function sqliteEnumRewriteComplete(array $remap): bool
+    {
+        if (! Schema::hasColumn('users', 'program_status') || Schema::hasColumn('users', 'program_status_tmp')) {
+            return false;
+        }
+
+        foreach (array_keys($remap) as $oldValue) {
+            if (DB::table('users')->where('program_status', $oldValue)->exists()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, string>  $remap
+     */
+    private function copyProgramStatusToSqliteTmp(array $remap): void
+    {
+        DB::table('users')
+            ->orderBy('id')
+            ->lazy()
+            ->each(function ($user) use ($remap) {
+                $current = $user->program_status;
+                $mapped = $remap[$current] ?? $current;
+
+                DB::table('users')->where('id', $user->id)->update(['program_status_tmp' => $mapped]);
+            });
     }
 
     /**
