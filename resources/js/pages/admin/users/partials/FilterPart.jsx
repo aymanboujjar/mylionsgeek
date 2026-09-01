@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { GENDER_OPTIONS, HANDICAP_OPTIONS, PROGRAM_STATUS_OPTIONS } from '@/components/helpers/userDemographics';
+import { GENDER_OPTIONS, HANDICAP_OPTIONS, PROGRAM_STATUS_FILTER_OPTIONS } from '@/components/helpers/userDemographics';
 import { Filter, RotateCw, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
@@ -19,7 +19,7 @@ const FALLBACK_FILTERS = {
     field: null,
     gender: '',
     has_handicap: '',
-    program_status: '',
+    program_status: 'all',
 };
 
 const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, fields = [], initialFilters }) => {
@@ -39,7 +39,7 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, f
         if (filters.status) count += 1;
         if (filters.gender) count += 1;
         if (filters.has_handicap !== '' && filters.has_handicap !== null && filters.has_handicap !== undefined) count += 1;
-        if (filters.program_status) count += 1;
+        if (filters.program_status && filters.program_status !== 'all') count += 1;
         return count;
     }, [filters]);
 
@@ -249,14 +249,14 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, f
                             <Label>Program status</Label>
                             <Select
                                 value={filters.program_status || 'all'}
-                                onValueChange={(e) => handleChange('program_status', e === 'all' ? '' : e)}
+                                onValueChange={(value) => handleChange('program_status', value)}
                             >
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select By Program status" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">All</SelectItem>
-                                    {PROGRAM_STATUS_OPTIONS.map((option) => (
+                                    {PROGRAM_STATUS_FILTER_OPTIONS.map((option) => (
                                         <SelectItem key={option.value} value={option.value}>
                                             {option.label}
                                         </SelectItem>

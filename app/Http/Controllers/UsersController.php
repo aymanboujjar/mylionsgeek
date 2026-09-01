@@ -129,8 +129,8 @@ class UsersController extends Controller
                 'program_status' => function ($user) {
                     return match ($user->program_status) {
                         'active' => 'Active',
-                        'certified' => 'Certified',
-                        'not_certified' => 'Not Certified',
+                        'certified' => 'Certificate',
+                        'not_certified' => 'Not Certificate',
                         'left' => 'Left',
                         default => '',
                     };

@@ -1,4 +1,5 @@
 import Banner from '@/components/banner';
+import { matchesProgramStatusFilter } from '@/components/helpers/userDemographics';
 import { ADMIN_USER_STATUSES } from '@/components/helpers/userStatuses';
 import AppLayout from '@/layouts/app-layout';
 import { useMemo, useState } from 'react';
@@ -17,7 +18,7 @@ const defaultFilters = {
     field: null,
     gender: '',
     has_handicap: '',
-    program_status: '',
+    program_status: 'all',
 };
 
 const Users = ({ users, trainings }) => {
@@ -98,10 +99,7 @@ const Users = ({ users, trainings }) => {
                 const userHasHandicap = user.has_handicap === true || user.has_handicap === 1 || user.has_handicap === '1';
                 return wantsHandicap ? userHasHandicap : user.has_handicap === false || user.has_handicap === 0 || user.has_handicap === '0';
             })
-            .filter((user) => {
-                if (!filters.program_status) return true;
-                return (user.program_status || '') === filters.program_status;
-            })
+            .filter((user) => matchesProgramStatusFilter(user.program_status, filters.program_status))
             .sort((a, b) => {
                 if (filters.date === 'oldest') {
                     return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();

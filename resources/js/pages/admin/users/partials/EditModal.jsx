@@ -3,13 +3,19 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useInitials } from '@/hooks/use-initials';
 import { router, usePage } from '@inertiajs/react';
 import { Briefcase, ExternalLink, Facebook, Github, ImagePlus, Instagram, Linkedin, MessageCircle, Send, Trash, Twitter, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { normalizeStatusForSelect, resolveStatusOptions } from '@/components/helpers/userStatuses';
-import { GENDER_OPTIONS, HANDICAP_OPTIONS, handicapSelectValue, PROGRAM_STATUS_OPTIONS } from '@/components/helpers/userDemographics';
+import {
+    GENDER_OPTIONS,
+    HANDICAP_OPTIONS,
+    handicapSelectValue,
+    PROGRAM_STATUS,
+    PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS,
+} from '@/components/helpers/userDemographics';
 import Rolegard from '../../../../components/rolegard';
 import RolesMultiSelect from './RolesMultiSelect';
 
@@ -82,7 +88,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         cin: editedUser?.cin ?? '',
         gender: editedUser?.gender || 'none',
         has_handicap: handicapSelectValue(editedUser?.has_handicap),
-        program_status: editedUser?.program_status || 'none',
+        program_status: editedUser?.program_status || 'all',
         speciality: editedUser?.speciality ?? '',
         image: editedUser?.image || null,
         resumeFile: null,
@@ -129,7 +135,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                 cin: editedUser.cin ?? '',
                 gender: editedUser.gender || 'none',
                 has_handicap: handicapSelectValue(editedUser.has_handicap),
-                program_status: editedUser.program_status || 'none',
+                program_status: editedUser.program_status || 'all',
                 speciality: editedUser.speciality ?? '',
                 image: editedUser?.image || null,
                 resumeFile: null,
@@ -224,7 +230,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         if (canEditOthers) {
             form.append('gender', formData.gender === 'none' ? '' : formData.gender);
             form.append('has_handicap', formData.has_handicap === 'none' ? '' : formData.has_handicap);
-            form.append('program_status', formData.program_status === 'none' ? '' : formData.program_status);
+            form.append('program_status', formData.program_status === 'all' ? '' : formData.program_status);
         }
 
         form.append('access_studio', formData.access_studio === 'Yes' ? 1 : 0);
@@ -345,12 +351,17 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                                     <SelectValue placeholder="Select program status" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="none">Not set</SelectItem>
-                                    {PROGRAM_STATUS_OPTIONS.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                            {option.label}
-                                        </SelectItem>
-                                    ))}
+                                    <SelectItem value="all">All</SelectItem>
+                                    <SelectItem value={PROGRAM_STATUS.ACTIVE}>Active</SelectItem>
+                                    <SelectItem value={PROGRAM_STATUS.LEFT}>Left</SelectItem>
+                                    <SelectGroup>
+                                        <SelectLabel>Certificate &amp; Not Certificate</SelectLabel>
+                                        {PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectGroup>
                                 </SelectContent>
                             </Select>
                         </div>
