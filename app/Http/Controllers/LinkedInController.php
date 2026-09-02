@@ -199,8 +199,8 @@ class LinkedInController extends Controller
         $user = $request->user();
         if (! $user) abort(401);
 
-        if ((string) ($user->status ?? '') !== 'Certified') {
-            return response()->json(['error' => 'Only Certified users can share a certificate.'], 403);
+        if ($user->certified_at === null) {
+            return response()->json(['error' => 'Only certified users can share a certificate.'], 403);
         }
 
         $linked = LinkedAccount::query()

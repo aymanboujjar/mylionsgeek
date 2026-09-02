@@ -16,7 +16,7 @@ class GenerateCertificatePngs extends Command
     public function handle(CertificateImageGenerator $generator): int
     {
         $users = User::query()
-            ->where('status', 'Certified')
+            ->whereNotNull('certified_at')
             ->whereNotNull('certified_training_id')
             ->with('formation')
             ->get();

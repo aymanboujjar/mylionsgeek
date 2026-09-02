@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { usePage } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
+import { PROGRAM_STATUS } from '@/components/helpers/userDemographics';
 
 function normalizeRoles(role) {
     return Array.isArray(role) ? role : role ? [role] : [];
@@ -20,7 +21,7 @@ export default function CertifiedLinkedInShareModal() {
     const shouldShow = Boolean(
         user &&
             isStudentLike &&
-            user.status === 'Certified' &&
+            user.program_status === PROGRAM_STATUS.LAUREATE &&
             !user.linkedin_share_prompted_at &&
             !user.linkedin_share_dismissed_at &&
             !user.linkedin_shared_at,
@@ -28,7 +29,7 @@ export default function CertifiedLinkedInShareModal() {
 
     // Temporary debug — remove once the modal is confirmed working
     console.log('[CertifiedModal]', {
-        status: user?.status,
+        program_status: user?.program_status,
         isStudentLike,
         linkedin_share_prompted_at: user?.linkedin_share_prompted_at,
         linkedin_share_dismissed_at: user?.linkedin_share_dismissed_at,

@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\AttendanceCheckInService;
 use App\Services\AttendanceLegacyIdService;
 use App\Services\AttendancePersistenceService;
+use App\Services\ProgramStatusService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -355,7 +356,7 @@ class TrainingController extends Controller
         ]);
     }
 
-    public function addStudent(Request $request, $id)
+    public function addStudent(Request $request, $id, ProgramStatusService $programStatusService)
     {
         $checkResult = $this->checkRequestedUser();
         if ($checkResult) {
@@ -368,11 +369,11 @@ class TrainingController extends Controller
 
         $training = Formation::findOrFail($id);
         $user = User::findOrFail($validated['student_id']);
-        
-        if ($user) {
-            $user->formation_id = $training->id;
-            $user->save();
-        }
+
+        $user->formation_id = $training->id;
+        $user->save();
+
+        $programStatusService->markActiveOnEnrollment($user);
 
         return response()->json([
             'success' => true,

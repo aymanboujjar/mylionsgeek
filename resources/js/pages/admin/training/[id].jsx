@@ -35,6 +35,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import RolesMultiSelect from '@/pages/admin/users/partials/RolesMultiSelect';
 import CertificateModal from './partials/CertificateModal';
 import GeekyWheel from './partials/geekyWheel';
+import TrainingStatsCards from './partials/TrainingStatsCards';
 
 export default function Show({ training, usersNull, courses = [] }) {
     const { auth } = usePage().props;
@@ -682,6 +683,8 @@ export default function Show({ training, usersNull, courses = [] }) {
                         </div>
                     )}
                 </div>
+
+                {students.length > 0 && <TrainingStatsCards students={students} />}
 
                 <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
                     {/* Left Side – Students List */}

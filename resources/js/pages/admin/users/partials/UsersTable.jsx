@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useInitials } from '@/hooks/use-initials';
 import RoleBadge from '@/pages/admin/users/partials/RoleBadge';
 import Rolegard from '@/components/rolegard';
+import { genderLabel, programStatusLabel } from '@/components/helpers/userDemographics';
 import { router, usePage } from '@inertiajs/react';
 import { CameraIcon, ChevronsLeft, ChevronsRight, CircleCheckBig, Pencil, Trash, UsersRoundIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -89,7 +90,9 @@ const UsersTable = ({ users, filters, roles = [], trainings = [], status }) => {
                         <TableHead className="w-[100px]">Members</TableHead>
                         <TableHead>Access</TableHead>
                         <TableHead>Email</TableHead>
+                        <TableHead>Gender</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Program status</TableHead>
                         <TableHead>Role</TableHead>
                         <Rolegard authorized={['admin', 'super_admin']}>
                             <TableHead>Menu</TableHead>
@@ -133,7 +136,9 @@ const UsersTable = ({ users, filters, roles = [], trainings = [], status }) => {
                                 </div>
                             </TableCell>
                             <TableCell className="font-medium">{user.email}</TableCell>
-                            <TableCell className="font-medium">{user.status}</TableCell>
+                            <TableCell className="font-medium">{genderLabel(user.gender) || '—'}</TableCell>
+                            <TableCell className="font-medium">{user.status || '—'}</TableCell>
+                            <TableCell className="font-medium">{programStatusLabel(user.program_status) || '—'}</TableCell>
                             <TableCell>
                                 <div className="flex flex-wrap gap-2">
                                     {user.role ? (

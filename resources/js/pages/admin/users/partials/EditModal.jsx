@@ -9,6 +9,7 @@ import { router, usePage } from '@inertiajs/react';
 import { Briefcase, ExternalLink, Facebook, Github, ImagePlus, Instagram, Linkedin, MessageCircle, Send, Trash, Twitter, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { normalizeStatusForSelect, resolveStatusOptions } from '@/components/helpers/userStatuses';
+import { GENDER_OPTIONS, HANDICAP_OPTIONS, handicapSelectValue, PROGRAM_STATUS_OPTIONS } from '@/components/helpers/userDemographics';
 import Rolegard from '../../../../components/rolegard';
 import RolesMultiSelect from './RolesMultiSelect';
 
@@ -79,6 +80,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         formation_id: editedUser?.formation_id || '',
         phone: editedUser?.phone ?? '',
         cin: editedUser?.cin ?? '',
+        gender: editedUser?.gender || 'none',
+        has_handicap: handicapSelectValue(editedUser?.has_handicap),
+        program_status: editedUser?.program_status || 'none',
         speciality: editedUser?.speciality ?? '',
         image: editedUser?.image || null,
         resumeFile: null,
@@ -123,6 +127,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                 formation_id: editedUser.formation_id || '',
                 phone: editedUser.phone ?? '',
                 cin: editedUser.cin ?? '',
+                gender: editedUser.gender || 'none',
+                has_handicap: handicapSelectValue(editedUser.has_handicap),
+                program_status: editedUser.program_status || 'none',
                 speciality: editedUser.speciality ?? '',
                 image: editedUser?.image || null,
                 resumeFile: null,
@@ -214,6 +221,12 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         form.append('speciality', formData.speciality ?? '');
         form.append('formation_id', formData.formation_id || '');
 
+        if (canEditOthers) {
+            form.append('gender', formData.gender === 'none' ? '' : formData.gender);
+            form.append('has_handicap', formData.has_handicap === 'none' ? '' : formData.has_handicap);
+            form.append('program_status', formData.program_status === 'none' ? '' : formData.program_status);
+        }
+
         form.append('access_studio', formData.access_studio === 'Yes' ? 1 : 0);
         form.append('access_cowork', formData.access_cowork === 'Yes' ? 1 : 0);
         form.append('access_scan', formData.access_scan === 'Yes' ? 1 : 0);
@@ -297,31 +310,50 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                         <Label htmlFor="email">Email</Label>
                         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
                     </div>
-                    {/* Left Column - Phone */}
-                    <div className={!showStatusField ? 'col-span-2' : 'col-span-1'}>
+                    {/* Phone */}
+                    <div className="col-span-1">
                         <Label htmlFor="phone">Phone</Label>
                         <Input id="phone" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
                     </div>
-                    {/* Right Column - CIN */}
-                    {isAdminOrStudioResponsable && (
+                    {canEditOthers && (
                         <div className="col-span-1">
-                            <Label htmlFor="cin">CIN</Label>
-                            <Input id="cin" value={formData.cin || ''} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} />
+                            <Label>Gender</Label>
+                            <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select gender" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">Not set</SelectItem>
+                                    {GENDER_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     )}
-                    <div className="lg:col-span-1 md:col-span-2">
-                        <Label htmlFor="speciality">Speciality</Label>
-                        <Input
-                            id="speciality"
-                            value={formData.speciality}
-                            onChange={(e) => setFormData({ ...formData, speciality: e.target.value })}
-                            placeholder="e.g. Full stack developer, Mobile developer"
-                        />
-                        {errors.speciality && (
-                            <p className="mt-1 text-xs text-red-500">{Array.isArray(errors.speciality) ? errors.speciality[0] : errors.speciality}</p>
-                        )}
-                    </div>
-                    {/* Left Column - Status */}
+                    {canEditOthers && (
+                        <div className="col-span-1">
+                            <Label>Program status</Label>
+                            <Select
+                                value={formData.program_status}
+                                onValueChange={(v) => setFormData({ ...formData, program_status: v })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select program status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">Not set</SelectItem>
+                                    {PROGRAM_STATUS_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
                     {showStatusField && (
                         <div className="col-span-1">
                             <Label>Status</Label>
@@ -339,6 +371,42 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                             </Select>
                         </div>
                     )}
+                    {isAdminOrStudioResponsable && (
+                        <div className="col-span-1">
+                            <Label htmlFor="cin">CIN</Label>
+                            <Input id="cin" value={formData.cin || ''} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} />
+                        </div>
+                    )}
+                    {canEditOthers && (
+                        <div className="col-span-1">
+                            <Label>Handicap</Label>
+                            <Select value={formData.has_handicap} onValueChange={(v) => setFormData({ ...formData, has_handicap: v })}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select handicap" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">Not set</SelectItem>
+                                    {HANDICAP_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    <div className="lg:col-span-1 md:col-span-2">
+                        <Label htmlFor="speciality">Speciality</Label>
+                        <Input
+                            id="speciality"
+                            value={formData.speciality}
+                            onChange={(e) => setFormData({ ...formData, speciality: e.target.value })}
+                            placeholder="e.g. Full stack developer, Mobile developer"
+                        />
+                        {errors.speciality && (
+                            <p className="mt-1 text-xs text-red-500">{Array.isArray(errors.speciality) ? errors.speciality[0] : errors.speciality}</p>
+                        )}
+                    </div>
                     <div className="col-span-1">
                         <Label htmlFor="resume" className="mb-2 flex items-center gap-2">
                             CV (PDF or Word)

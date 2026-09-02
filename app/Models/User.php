@@ -32,7 +32,10 @@ class User extends Authenticatable
         'must_change_password',
         'phone',
         'cin',
+        'gender',
+        'has_handicap',
         'status',
+        'program_status',
         'formation_id',
         'image',
         'resume',
@@ -75,6 +78,7 @@ class User extends Authenticatable
             'activation_token_expires_at' => 'datetime',
             'password' => 'hashed',
             'must_change_password' => 'boolean',
+            'has_handicap' => 'boolean',
             'role' => 'array',
             'socials' => 'array',
         ];
@@ -217,6 +221,39 @@ class User extends Authenticatable
     public const RESUME_DISK = 'public';
 
     public const RESUME_DIRECTORY = 'resumes';
+
+    /**
+     * LionsGEEK program lifecycle. Independent of the `status` column, which tracks
+     * life situation (Working, Studying…) and must never be derived from these.
+     *
+     *   active    — currently following the training
+     *   laureate  — finished and received a certificate
+     *   completed — finished but received no certificate
+     *   left      — did not finish; set by hand by an admin or coach
+     */
+    public const PROGRAM_STATUS_ACTIVE = 'active';
+
+    public const PROGRAM_STATUS_LAUREATE = 'laureate';
+
+    public const PROGRAM_STATUS_COMPLETED = 'completed';
+
+    public const PROGRAM_STATUS_LEFT = 'left';
+
+    /** @var list<string> */
+    public const PROGRAM_STATUSES = [
+        self::PROGRAM_STATUS_ACTIVE,
+        self::PROGRAM_STATUS_LAUREATE,
+        self::PROGRAM_STATUS_COMPLETED,
+        self::PROGRAM_STATUS_LEFT,
+    ];
+
+    /** Human-readable labels, mirroring resources/js/components/helpers/userDemographics.js */
+    public const PROGRAM_STATUS_LABELS = [
+        self::PROGRAM_STATUS_ACTIVE => 'Active',
+        self::PROGRAM_STATUS_LAUREATE => 'Laureate',
+        self::PROGRAM_STATUS_COMPLETED => 'Completed',
+        self::PROGRAM_STATUS_LEFT => 'Left',
+    ];
 
     /** Relative path on the public disk, e.g. resumes/abc.pdf */
     public function resumeStoragePath(): ?string
