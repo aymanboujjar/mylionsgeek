@@ -17,12 +17,7 @@ class CompleteProfileController extends Controller
 {
     public function goToCompleteProfile(Request $request, $token)
     {
-        if (! $request->hasValidSignature()) {
-            return Inertia::render('profile/ExpiredLink');
-        }
-
-        $user = User::where('activation_token', $token)->first();
-
+        $user = $this->resolveActivationUser($request, $token);
         if (! $user) {
             return Inertia::render('profile/ExpiredLink');
         }
@@ -30,8 +25,18 @@ class CompleteProfileController extends Controller
         $inviteSource = $user->invite_source;
         $fromLionsgeek = in_array($inviteSource, ['lionsgeek_adult', 'lionsgeek_children'], true);
 
+        $expiresAt = $user->activation_token_expires_at ?? now()->addHours(User::ACTIVATION_TTL_HOURS);
+
         return Inertia::render('profile/index', [
-            'user' => $user,
+            'user' => [
+                'name' => $user->name,
+                'phone' => $user->phone,
+            ],
+            'submitUrl' => URL::temporarySignedRoute(
+                'user.complete-profile.update',
+                $expiresAt,
+                ['token' => $token]
+            ),
             'profileMeta' => [
                 'from_lionsgeek' => $fromLionsgeek,
                 'is_children' => $inviteSource === 'lionsgeek_children',
@@ -44,13 +49,12 @@ class CompleteProfileController extends Controller
     public function resendActivationLink($id)
     {
         $user = User::find($id);
-        $user->activation_token = Str::uuid();
-        $user->save();
+        $plainToken = $user->issueActivationToken();
 
         $link = URL::temporarySignedRoute(
             'user.complete-profile',
-            now()->addHours(24),
-            ['token' => $user->activation_token]
+            now()->addHours(User::ACTIVATION_TTL_HOURS),
+            ['token' => $plainToken]
         );
 
         Mail::to($user->email)->send(new UserWelcomeMail($user, $link));
@@ -60,8 +64,7 @@ class CompleteProfileController extends Controller
 
     public function submitCompleteProfile(Request $request, $token)
     {
-        $user = User::where('activation_token', $token)->first();
-
+        $user = $this->resolveActivationUser($request, $token);
         if (! $user) {
             return Inertia::render('profile/ExpiredLink');
         }
@@ -118,12 +121,12 @@ class CompleteProfileController extends Controller
         }
 
         $user->entreprise = $validated['entreprise'] ?? null;
-        $user->activation_token = null;
         $user->account_state = 0;
         if (array_key_exists('image', $validated)) {
             $user->image = $validated['image'];
         }
         $user->save();
+        $user->consumeActivationToken();
 
         Mail::to($user->email)->send(new WelcomeUserAfterProfileComplete($user));
 
@@ -138,8 +141,19 @@ class CompleteProfileController extends Controller
         $user->password = Hash::make($newPassword);
         $user->save();
 
+        $user->tokens()->delete();
+
         Mail::to($user->email)->send(new NewPasswordNotification($user, $newPassword));
 
         return back()->with('success', 'Password reset and email sent to user.');
+    }
+
+    private function resolveActivationUser(Request $request, string $token): ?User
+    {
+        if (! $request->hasValidSignature()) {
+            return null;
+        }
+
+        return User::findByActivationToken($token);
     }
 }

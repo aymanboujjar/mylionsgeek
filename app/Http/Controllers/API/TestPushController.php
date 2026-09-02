@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
 use App\Services\ExpoPushNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,16 +17,14 @@ class TestPushController extends Controller
     public function test(Request $request)
     {
         $user = Auth::guard('sanctum')->user();
-        
-        if (!$user) {
+
+        if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
-        // Refresh user to get latest expo_push_token
         $user->refresh();
 
-        // Check if user has push token
-        if (!$user->expo_push_token) {
+        if (! $user->expo_push_token) {
             return response()->json([
                 'success' => false,
                 'message' => 'User does not have an Expo push token registered',
@@ -44,19 +41,19 @@ class TestPushController extends Controller
         Log::info('Test push notification requested', [
             'user_id' => $user->id,
             'user_email' => $user->email,
-            'has_token' => !empty($user->expo_push_token),
-            'token_preview' => substr($user->expo_push_token, 0, 30) . '...',
+            'has_token' => ! empty($user->expo_push_token),
+            'token_preview' => $this->tokenPreview($user->expo_push_token),
             'title' => $title,
             'body' => $body,
         ]);
 
         try {
             $pushService = app(ExpoPushNotificationService::class);
-            
+
             Log::info('Calling push service sendToUser', [
                 'user_id' => $user->id,
             ]);
-            
+
             $success = $pushService->sendToUser($user, $title, $body, array_merge([
                 'type' => 'test',
                 'timestamp' => now()->toIso8601String(),
@@ -68,75 +65,25 @@ class TestPushController extends Controller
                 'success' => $success,
             ]);
 
-            // If failed, check recent logs for more details
-            if (!$success) {
-                $logFile = storage_path('logs/laravel.log');
-                $recentErrors = [];
-                if (file_exists($logFile)) {
-                    $lines = file($logFile);
-                    // Get last 100 lines
-                    $recentLines = array_slice($lines, -100);
-                    foreach (array_reverse($recentLines) as $line) {
-                        if (stripos($line, 'Expo') !== false || 
-                            stripos($line, 'push notification') !== false ||
-                            stripos($line, 'error') !== false) {
-                            $recentErrors[] = trim($line);
-                            if (count($recentErrors) >= 5) break; // Get last 5 relevant lines
-                        }
-                    }
-                }
-                
-                Log::warning('Push notification send failed - recent errors', [
-                    'user_id' => $user->id,
-                    'recent_errors' => $recentErrors,
-                ]);
-            }
-
             if ($success) {
                 return response()->json([
                     'success' => true,
                     'message' => 'Test notification sent successfully! Check your phone for the push notification.',
                     'user_id' => $user->id,
                     'user_email' => $user->email,
-                    'token_preview' => substr($user->expo_push_token, 0, 30) . '...',
+                    'token_preview' => $this->tokenPreview($user->expo_push_token),
                     'title' => $title,
                     'body' => $body,
                     'note' => 'If you don\'t see the notification on your phone, check: 1) App is in background/closed, 2) Device notification settings, 3) Laravel logs for errors',
                 ]);
-            } else {
-                // Try to get more details from recent logs
-                $logFile = storage_path('logs/laravel.log');
-                $recentErrors = [];
-                if (file_exists($logFile)) {
-                    $lines = file($logFile);
-                    // Get last 200 lines
-                    $recentLines = array_slice($lines, -200);
-                    foreach (array_reverse($recentLines) as $line) {
-                        $lineLower = strtolower($line);
-                        if (stripos($line, 'Expo') !== false || 
-                            stripos($line, 'push notification') !== false ||
-                            stripos($line, 'error') !== false ||
-                            stripos($line, 'exception') !== false) {
-                            $recentErrors[] = trim($line);
-                            if (count($recentErrors) >= 10) break;
-                        }
-                    }
-                }
-                
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Failed to send notification. The Expo API call returned false.',
-                    'user_id' => $user->id,
-                    'token_preview' => substr($user->expo_push_token, 0, 30) . '...',
-                    'full_token' => $user->expo_push_token, // Include full token for debugging
-                    'hint' => 'Check storage/logs/laravel.log for detailed error messages. Look for "Expo push notification error" or "Failed to send Expo push notification"',
-                    'recent_log_errors' => array_slice($recentErrors, 0, 5), // Last 5 relevant log lines
-                    'debug_info' => [
-                        'token_format_valid' => preg_match('/^ExponentPushToken\[.+\]$/', $user->expo_push_token),
-                        'token_length' => strlen($user->expo_push_token),
-                    ],
-                ], 500);
             }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send notification. The Expo API call returned false.',
+                'user_id' => $user->id,
+                'token_preview' => $this->tokenPreview($user->expo_push_token),
+            ], 500);
         } catch (\Exception $e) {
             Log::error('Test push notification failed with exception', [
                 'user_id' => $user->id,
@@ -148,12 +95,9 @@ class TestPushController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Exception occurred while sending notification',
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
+                'message' => 'Unable to send the test notification. Please try again later.',
                 'user_id' => $user->id,
-                'token_preview' => substr($user->expo_push_token ?? '', 0, 30) . '...',
+                'token_preview' => $this->tokenPreview($user->expo_push_token),
             ], 500);
         }
     }
@@ -164,19 +108,25 @@ class TestPushController extends Controller
     public function status(Request $request)
     {
         $user = Auth::guard('sanctum')->user();
-        
-        if (!$user) {
+
+        if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
         $user->refresh();
 
         return response()->json([
-            'has_token' => !empty($user->expo_push_token),
-            'token_preview' => $user->expo_push_token ? substr($user->expo_push_token, 0, 30) . '...' : null,
-            'full_token' => $user->expo_push_token, // Include full token for debugging
+            'has_token' => ! empty($user->expo_push_token),
+            'token_preview' => $user->expo_push_token ? $this->tokenPreview($user->expo_push_token) : null,
             'user_id' => $user->id,
             'user_email' => $user->email,
         ]);
+    }
+
+    private function tokenPreview(?string $token): string
+    {
+        $token = (string) $token;
+
+        return substr($token, 0, 30).'...';
     }
 }

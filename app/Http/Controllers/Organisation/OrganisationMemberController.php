@@ -75,7 +75,8 @@ class OrganisationMemberController extends Controller
             $lastUser = User::query()->orderByDesc('id')->first();
             $nextId = $lastUser ? ((int) $lastUser->id) + 1 : 1;
 
-            $employer = User::create([
+            $employer = new User();
+            $employer->forceFill([
                 'id' => $nextId,
                 'name' => $displayName,
                 'email' => $email,
@@ -92,7 +93,7 @@ class OrganisationMemberController extends Controller
                 'role' => ['recruiter'],
                 'email_verified_at' => now(),
                 'activation_token' => null,
-            ]);
+            ])->save();
 
             $organization->employers()->attach($employer->id, [
                 'member_role' => 'employer',

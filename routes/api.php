@@ -19,18 +19,20 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
-Route::post("/invite-student", [UserController::class, "inviteStudent"]);
+Route::post('/invite-student', [UserController::class, 'inviteStudent'])
+    ->middleware('invite.student');
 
-// Mobile authentication endpoints (public)
-Route::post('/mobile/login', [MobileAuthController::class, 'login']);
-Route::post('/mobile/forgot-password', [MobileAuthController::class, 'forgot']);
+// Mobile authentication endpoints (public, throttled before credential/reset work)
+Route::post('/mobile/login', [MobileAuthController::class, 'login'])
+    ->middleware('throttle:mobile-login');
+Route::post('/mobile/forgot-password', [MobileAuthController::class, 'forgot'])
+    ->middleware('throttle:mobile-forgot-password');
 
 // Mobile app version check (public — no auth required)
 Route::get('/mobile/app-version', [AppVersionController::class, 'show']);
 
 // LionsGeek (lionsgeek.ma) events/info-session proxy for the mobile app.
-// Gated by the shared bearer key inside the controller, so it stays public
-// here (the device authenticates with the upstream key, not a sanctum token).
+// Incoming: Sanctum + per-route authorization. Outgoing: server-side LIONSGEEK_MA_API_KEY.
 require __DIR__ . '/api/events-info.php';
 
 // lionsgeek.ma → mylionsgeek webhooks (shared LIONSGEEK_MA_API_KEY bearer).
@@ -46,6 +48,7 @@ Route::get('/places', [PlacesController::class, 'getPlacesJson'])
     ->name('admin.api.places');
 
 Route::post('/reservations/store', [ReservationController::class, 'storemobile'])
+    ->middleware('auth:sanctum')
     ->name('reservations.store');
 
 Route::post('/cowork/reserve', [ReservationController::class, 'storeReservationCoworkMobile']);
@@ -61,8 +64,10 @@ Route::middleware('auth:sanctum')->prefix('mobile')->group(function () {
     require __DIR__ . '/api/leaderboard.php';
     require __DIR__ . '/api/search.php';
     require __DIR__ . '/api/training.php';
+    require __DIR__ . '/api/notifications.php';
 
     Route::post('/password', [MobileAuthController::class, 'updatePassword']);
+    Route::post('/logout', [MobileAuthController::class, 'logout']);
 
     // Push token endpoint
     Route::post('/push-token', [\App\Http\Controllers\API\PushTokenController::class, 'store']);

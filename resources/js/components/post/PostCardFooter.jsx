@@ -224,7 +224,7 @@ const PostCardFooter = ({ user, post, takeToUserProfile, PostModal = true, onCom
                         onClick={() => toggleLike(interactionPostId)}
                         className={
                             isFacebook
-                                ? `flex flex-1 cursor-pointer items-center justify-center gap-1 py-2.5 text-[15px] font-semibold transition-colors hover:bg-muted/50 dark:hover:bg-white/5 ${isLiked ? 'text-alpha' : 'text-beta dark:text-light'
+                                ? `flex flex-1 cursor-pointer items-center justify-center gap-1 py-2.5 text-[15px] font-semibold transition-colors hover:bg-muted/50 dark:hover:bg-dark_gray ${isLiked ? 'text-alpha' : 'text-beta dark:text-light'
                                 }`
                                 : `flex cursor-pointer items-center gap-1 rounded-lg px-4 py-2 transition-colors duration-200 ${isLiked ? 'text-alpha' : 'text-beta hover:text-alpha dark:text-light'
                                 }`
@@ -242,7 +242,7 @@ const PostCardFooter = ({ user, post, takeToUserProfile, PostModal = true, onCom
                         type="button"
                         className={
                             isFacebook
-                                ? 'flex flex-1 cursor-pointer items-center justify-center gap-2 py-2.5 text-[15px] font-semibold text-beta transition-colors hover:bg-muted/50 dark:text-light dark:hover:bg-white/5'
+                                ? 'flex flex-1 cursor-pointer items-center justify-center gap-2 py-2.5 text-[15px] font-semibold text-beta transition-colors hover:bg-muted/50 dark:text-light dark:hover:bg-dark_gray'
                                 : 'flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-beta transition-colors duration-200 hover:bg-dark_gray/10 hover:text-beta dark:text-light dark:hover:bg-light/10'
                         }
                         onClick={() => onCommentPress?.()}
@@ -260,28 +260,28 @@ const PostCardFooter = ({ user, post, takeToUserProfile, PostModal = true, onCom
 
                     {/* Repost Button — only on original posts, not repost feed items */}
                     {canRepost && (
-                    <button
-                        type="button"
-                        className={
-                            isFacebook
-                                ? `flex flex-1 cursor-pointer items-center justify-center gap-2 py-2.5 text-[15px] font-semibold transition-colors hover:bg-muted/50 dark:hover:bg-white/5 ${isReposted ? 'text-alpha' : 'text-beta dark:text-light'}`
-                                : `flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 transition-colors duration-200 ${isReposted ? 'text-alpha' : 'text-beta hover:text-alpha dark:text-light'}`
-                        }
-                        onClick={() => setRepostOpenFor(post?.id)}
-                        aria-pressed={isReposted}
-                    >
-                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M17 1l4 4-4 4M3 11V9a4 4 0 014-4h14M7 23l-4-4 4-4m14-2v2a4 4 0 01-4 4H3"
-                            />
-                        </svg>
-                        <span className={isFacebook ? 'font-semibold' : 'text-sm font-semibold'}>
-                            {isReposted ? 'Reposted' : 'Repost'}
-                        </span>
-                    </button>
+                        <button
+                            type="button"
+                            className={
+                                isFacebook
+                                    ? `flex flex-1 cursor-pointer items-center justify-center gap-2 py-2.5 text-[15px] font-semibold transition-colors hover:bg-muted/50 dark:hover:bg-dark_gray ${isReposted ? 'text-alpha' : 'text-beta dark:text-light'}`
+                                    : `flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 transition-colors duration-200 ${isReposted ? 'text-alpha' : 'text-beta hover:text-alpha dark:text-light'}`
+                            }
+                            onClick={() => setRepostOpenFor(post?.id)}
+                            aria-pressed={isReposted}
+                        >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M17 1l4 4-4 4M3 11V9a4 4 0 014-4h14M7 23l-4-4 4-4m14-2v2a4 4 0 01-4 4H3"
+                                />
+                            </svg>
+                            <span className={isFacebook ? 'font-semibold' : 'text-sm font-semibold'}>
+                                {isReposted ? 'Reposted' : 'Repost'}
+                            </span>
+                        </button>
                     )}
 
                     {/* Send Button */}
@@ -289,7 +289,7 @@ const PostCardFooter = ({ user, post, takeToUserProfile, PostModal = true, onCom
                         type="button"
                         className={
                             isFacebook
-                                ? 'flex flex-1 cursor-pointer items-center justify-center gap-2 py-2.5 text-[15px] font-semibold text-beta transition-colors hover:bg-muted/50 dark:text-light dark:hover:bg-white/5'
+                                ? 'flex flex-1 cursor-pointer items-center justify-center gap-2 py-2.5 text-[15px] font-semibold text-beta transition-colors hover:bg-muted/50 dark:text-light dark:hover:bg-dark_gray'
                                 : 'flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-beta transition-colors duration-200 hover:bg-dark_gray/10 hover:text-beta dark:text-light dark:hover:bg-light/10'
                         }
                         onClick={() => setSendOpenFor(post?.id)}

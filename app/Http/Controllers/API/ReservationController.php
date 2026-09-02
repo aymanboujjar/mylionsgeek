@@ -4,7 +4,6 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Equipment;
-use App\Models\Formation;
 use App\Models\Reservation;
 use App\Models\ReservationCowork;
 use App\Models\User;
@@ -13,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Response;
 
 class ReservationController extends Controller
@@ -22,15 +22,23 @@ class ReservationController extends Controller
 
     public function users()
     {
-        $allUsers = User::where('role', '!=', 'admin')
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        $allFormation = Formation::orderBy('created_at', 'desc')->get();
+        $users = User::query()
+            ->select('id', 'name', 'image')
+            ->where('role', '!=', 'admin')
+            ->whereJsonDoesntContain('role', 'admin')
+            ->orderBy('name')
+            ->get()
+            ->map(function ($user) {
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'image' => $user->image,
+                ];
+            })
+            ->values();
 
         return response()->json([
-            "users" => $allUsers->toArray(),
-            "formations" => $allFormation->toArray()
+            'users' => $users,
         ]);
     }
     public function index(Request $request)
@@ -273,6 +281,12 @@ class ReservationController extends Controller
         if ($checkResult) {
             return $checkResult;
         }
+
+        $authUser = Auth::guard('sanctum')->user();
+        if (! $authUser) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
         $validated = $request->validate([
             'studio_id' => 'required|integer|exists:studios,id',
             'title' => 'required|string|max:255',
@@ -284,11 +298,13 @@ class ReservationController extends Controller
             'team_members.*' => 'integer|exists:users,id',
             'equipment' => 'nullable|array',
             'equipment.*' => 'integer|exists:equipment,id',
-            'user_id' => 'required|integer|exists:users,id', // added
+            'user_id' => 'nullable|integer',
         ]);
 
-        $user = User::find($validated['user_id']);
-        if (!$this->userHasAccessFlag($user, 'access_studio')) {
+        // Never trust client-supplied user_id as the reservation owner.
+        $validated['user_id'] = (int) $authUser->id;
+
+        if (!$this->userHasAccessFlag($authUser, 'access_studio')) {
             return response()->json([
                 'success' => false,
                 'message' => 'You do not have permission to reserve a studio.',
@@ -545,21 +561,62 @@ class ReservationController extends Controller
             'end' => 'required',
         ]);
 
+        $table = (int) $request->table;
+        $day = $request->day;
+        $start = $request->start;
+        $end = $request->end;
+        $lockName = 'cowork-reserve-'.$table.'-'.$day;
+        $driver = DB::getDriverName();
 
+        try {
+            // Serialize first-insert races on MySQL/MariaDB when no reservation rows exist yet.
+            if (in_array($driver, ['mysql', 'mariadb'], true)) {
+                DB::select('SELECT GET_LOCK(?, 10) as acquired', [$lockName]);
+            }
 
-        $reservation = ReservationCowork::create([
-            'table' => $request->table,
-            'seats' => $request->seats,
-            'day' => $request->day,
-            'start' => $request->start,
-            'end' => $request->end,
-            'user_id' => $user->id,
-            'approved' => 1,
-            'canceled' => 0,
-            'passed' => 0,
-        ]);
+            $reservation = DB::transaction(function () use ($request, $user, $table, $day, $start, $end) {
+                // Parent-row lock: does not 404 if the cowork is missing (no extra exists validation).
+                if (Schema::hasTable('coworks')) {
+                    DB::table('coworks')->where('id', $table)->lockForUpdate()->first();
+                }
 
+                $sameTableDay = ReservationCowork::query()
+                    ->where('table', $table)
+                    ->where('day', $day)
+                    ->lockForUpdate()
+                    ->get();
 
+                $hasOverlap = $sameTableDay->contains(function ($row) use ($start, $end) {
+                    if ($row->canceled) {
+                        return false;
+                    }
+
+                    return $row->start < $end && $row->end > $start;
+                });
+
+                if ($hasOverlap) {
+                    throw ValidationException::withMessages([
+                        'start' => ['This table is already reserved for the selected time.'],
+                    ]);
+                }
+
+                return ReservationCowork::create([
+                    'table' => $table,
+                    'seats' => $request->seats,
+                    'day' => $day,
+                    'start' => $start,
+                    'end' => $end,
+                    'user_id' => $user->id,
+                    'approved' => 1,
+                    'canceled' => 0,
+                    'passed' => 0,
+                ]);
+            });
+        } finally {
+            if (in_array($driver, ['mysql', 'mariadb'], true)) {
+                DB::select('SELECT RELEASE_LOCK(?)', [$lockName]);
+            }
+        }
 
         return response()->json([
             'status' => 'success',

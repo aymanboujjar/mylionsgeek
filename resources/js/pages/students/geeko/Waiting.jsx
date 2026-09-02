@@ -63,7 +63,7 @@ export default function GeekoWaiting({ session, participant, leaderboard = [] })
                                 top.map((p, idx) => (
                                     <div
                                         key={p.id || idx}
-                                        className={`flex items-center justify-between rounded-xl border transition-all duration-300 ${idx === 0 ? 'scale-[1.01] border-alpha/40 bg-alpha/30 shadow-md' : 'border-white/20 bg-white/50 dark:bg-dark/40'} animate-[fadeIn_400ms_ease] p-4`}
+                                        className={`flex items-center justify-between rounded-xl border transition-all duration-300 ${idx === 0 ? 'scale-[1.01] border-alpha/40 bg-alpha/30 shadow-md' : 'border-white/20 bg-dark_gray0 dark:bg-dark/40'} animate-[fadeIn_400ms_ease] p-4`}
                                         style={{ animationDelay: `${idx * 70}ms` }}
                                     >
                                         <div className="flex items-center gap-3">

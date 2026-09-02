@@ -227,12 +227,12 @@ export default function ShowGeeko({ formation, geeko }) {
 
         // Create session directly - skip the quiz update for now
         ('Creating session with params:',
-            {
-                formationId: formation.id,
-                geekoId: geeko.id,
-                title: meta.title,
-                description: meta.description,
-            });
+        {
+            formationId: formation.id,
+            geekoId: geeko.id,
+            title: meta.title,
+            description: meta.description,
+        });
 
         router.post(
             `/training/${formation.id}/geeko/${geeko.id}/session/create`,
@@ -478,11 +478,10 @@ export default function ShowGeeko({ formation, geeko }) {
                                 </button>
                                 <button
                                     onClick={handleToggleStatus}
-                                    className={`rounded-lg px-3 py-1 text-sm font-medium transition-colors ${
-                                        geeko.status === 'ready'
-                                            ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                            : 'bg-alpha/20 text-alpha hover:bg-alpha/30'
-                                    }`}
+                                    className={`rounded-lg px-3 py-1 text-sm font-medium transition-colors ${geeko.status === 'ready'
+                                        ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        : 'bg-alpha/20 text-alpha hover:bg-alpha/30'
+                                        }`}
                                 >
                                     {geeko.status === 'ready' ? 'Draft' : 'Ready'}
                                 </button>
@@ -567,11 +566,10 @@ export default function ShowGeeko({ formation, geeko }) {
                                                     key={type.value}
                                                     type="button"
                                                     onClick={() => handleTypeChange(type.value)}
-                                                    className={`rounded-full border p-3 transition-all ${
-                                                        data.type === type.value
-                                                            ? 'border-alpha bg-alpha/10'
-                                                            : 'border-white/20 hover:border-alpha/40'
-                                                    }`}
+                                                    className={`rounded-full border p-3 transition-all ${data.type === type.value
+                                                        ? 'border-alpha bg-alpha/10'
+                                                        : 'border-white/20 hover:border-alpha/40'
+                                                        }`}
                                                 >
                                                     <div className="text-xs font-semibold">{type.label}</div>
                                                 </button>
@@ -599,11 +597,10 @@ export default function ShowGeeko({ formation, geeko }) {
                                                     <button
                                                         type="button"
                                                         onClick={() => toggleCorrectAnswer(index)}
-                                                        className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
-                                                            data.correct_answers.includes(index)
-                                                                ? 'border-good bg-good/20 text-good'
-                                                                : 'border-white/20 hover:border-alpha/40'
-                                                        }`}
+                                                        className={`rounded-lg border px-3 py-2 text-sm font-semibold ${data.correct_answers.includes(index)
+                                                            ? 'border-good bg-good/20 text-good'
+                                                            : 'border-white/20 hover:border-alpha/40'
+                                                            }`}
                                                     >
                                                         Correct
                                                     </button>
@@ -717,7 +714,7 @@ export default function ShowGeeko({ formation, geeko }) {
                             </div>
                         ) : (
                             <div className="py-20 text-center">
-                                <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-2xl border border-white/20 bg-white/50 text-2xl font-bold text-alpha backdrop-blur dark:bg-dark/40">
+                                <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-2xl border border-white/20 bg-dark_gray0 text-2xl font-bold text-alpha backdrop-blur dark:bg-dark/40">
                                     QUIZ
                                 </div>
                                 <h3 className="mb-4 text-2xl font-bold text-dark dark:text-light">No Questions Yet</h3>
@@ -862,9 +859,8 @@ function QuestionCard({
             onDragOver={onDragOver}
             onDragEnd={onDragEnd}
             onDrop={onDrop}
-            className={`cursor-move rounded-xl border border-alpha/20 bg-white shadow-sm transition-all duration-200 hover:shadow-md dark:bg-dark/80 ${
-                isDragging ? 'scale-95 opacity-50' : ''
-            } ${isExpanded ? 'ring-1 ring-alpha/40' : ''}`}
+            className={`cursor-move rounded-xl border border-alpha/20 bg-white shadow-sm transition-all duration-200 hover:shadow-md dark:bg-dark/80 ${isDragging ? 'scale-95 opacity-50' : ''
+                } ${isExpanded ? 'ring-1 ring-alpha/40' : ''}`}
         >
             {/* Minimalist Card Header */}
             <div className="p-4">

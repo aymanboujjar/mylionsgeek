@@ -94,7 +94,7 @@ const BoardPodium = ({ topWinners, isRefreshing, fetchLeaderboardData, getRankBa
 
                                                 {/* Avatar */}
                                                 <div
-                                                    className={`relative z-10 h-20 w-20 overflow-hidden rounded-full bg-white/5 ring-offset-4 ring-offset-[#dadee7] sm:h-32 sm:w-32 dark:ring-offset-[#050d1b] ${config.avatarRing} shadow-[0_0_25px_rgba(0,0,0,0.4)]`}
+                                                    className={`relative z-10 h-20 w-20 overflow-hidden rounded-full bg-dark_gray ring-offset-4 ring-offset-[#dadee7] sm:h-32 sm:w-32 dark:ring-offset-[#050d1b] ${config.avatarRing} shadow-[0_0_25px_rgba(0,0,0,0.4)]`}
                                                 >
                                                     <Avatar
                                                         className="h-full w-full rounded-full object-cover"
@@ -111,7 +111,7 @@ const BoardPodium = ({ topWinners, isRefreshing, fetchLeaderboardData, getRankBa
                                                 className={`relative w-34 sm:w-64 ${config.height} ${config.baseGradient} ${config.glow} flex flex-col items-center justify-center rounded-[26px] px-3 py-2 sm:px-6 sm:py-2`}
                                             >
                                                 <div className="absolute inset-x-6 top-4 h-10 bg-white/10 blur-2xl sm:blur-3xl" />
-                                                <div className="absolute inset-0 rounded-[26px] border border-white/5" />
+                                                <div className="absolute inset-0 rounded-[26px] border border-dark_gray" />
 
                                                 {/* Rank Circle */}
                                                 <div

@@ -495,7 +495,7 @@ class FormationController extends Controller
             }
 
             if (! empty($updateData)) {
-                $user->update($updateData);
+                $user->forceFill($updateData)->save();
                 $updated++;
             }
         }

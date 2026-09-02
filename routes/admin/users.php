@@ -27,6 +27,7 @@ Route::middleware(['auth', 'verified', 'role:admin,super_admin,moderateur,coach,
     Route::post('/users/{id}/reset-password', [CompleteProfileController::class, 'resetPassword']);
     Route::post('/users/{user}/certificate/download', [CertificateController::class, 'download'])->name('admin.users.certificate.download');
 });
-Route::post('/complete-profile/update/{token}', [CompleteProfileController::class, 'submitCompleteProfile']);
+Route::post('/complete-profile/update/{token}', [CompleteProfileController::class, 'submitCompleteProfile'])
+    ->name('user.complete-profile.update');
 Route::get('/complete-profile/{token}', [CompleteProfileController::class, 'goToCompleteProfile'])
     ->name('user.complete-profile');

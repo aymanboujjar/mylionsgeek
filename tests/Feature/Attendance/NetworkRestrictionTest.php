@@ -111,7 +111,7 @@ function postAttendanceSave(TestCase $test, User $actor, string $remoteAddr): Te
         ]);
 }
 
-test('student on allowed IP can save attendance', function () {
+test('student on allowed IP cannot save attendance', function () {
     config(['attendance.allowed_ips' => ['203.0.113.1']]);
 
     $student = createAttendanceUser(['role' => ['student']]);
@@ -119,9 +119,9 @@ test('student on allowed IP can save attendance', function () {
 
     $response = postAttendanceSave($this, $student, '203.0.113.1');
 
-    $response->assertOk()
-        ->assertJson(['status' => 'ok']);
-    expect(AttendanceListe::count())->toBe($countBefore + 1);
+    $response->assertForbidden()
+        ->assertJson(['message' => 'Forbidden']);
+    expect(AttendanceListe::count())->toBe($countBefore);
 });
 
 test('student on blocked IP cannot save attendance', function () {
@@ -134,12 +134,12 @@ test('student on blocked IP cannot save attendance', function () {
 
     $response->assertForbidden()
         ->assertJson([
-            'message' => 'You must be connected to the school WiFi to check in.',
+            'message' => 'Forbidden',
         ]);
     expect(AttendanceListe::count())->toBe($countBefore);
 });
 
-test('student with empty whitelist receives 503 and no writes', function () {
+test('student with empty whitelist is forbidden from saving attendance', function () {
     config(['attendance.allowed_ips' => []]);
 
     $student = createAttendanceUser(['role' => ['student']]);
@@ -147,9 +147,9 @@ test('student with empty whitelist receives 503 and no writes', function () {
 
     $response = postAttendanceSave($this, $student, '203.0.113.1');
 
-    $response->assertStatus(503)
+    $response->assertForbidden()
         ->assertJson([
-            'message' => 'Attendance network is not configured.',
+            'message' => 'Forbidden',
         ]);
     expect(AttendanceListe::count())->toBe($countBefore);
 });
@@ -219,7 +219,7 @@ test('network-check returns forbidden for student off-network', function () {
         ]);
 });
 
-test('student on IPv6-mapped allowed IP can save attendance', function () {
+test('student on IPv6-mapped allowed IP cannot save attendance', function () {
     config(['attendance.allowed_ips' => ['203.0.113.1']]);
 
     $student = createAttendanceUser(['role' => ['student']]);
@@ -227,7 +227,7 @@ test('student on IPv6-mapped allowed IP can save attendance', function () {
 
     $response = postAttendanceSave($this, $student, '::ffff:203.0.113.1');
 
-    $response->assertOk()
-        ->assertJson(['status' => 'ok']);
-    expect(AttendanceListe::count())->toBe($countBefore + 1);
+    $response->assertForbidden()
+        ->assertJson(['message' => 'Forbidden']);
+    expect(AttendanceListe::count())->toBe($countBefore);
 });

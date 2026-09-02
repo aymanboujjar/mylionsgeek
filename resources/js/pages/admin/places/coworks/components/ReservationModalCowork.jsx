@@ -227,7 +227,7 @@ const ReservationModalCowork = ({ isOpen, onClose, cowork, selectedRange, onSucc
                             type="button"
                             onClick={handleClose}
                             variant="outline"
-                            className="border-white/10 bg-white/5 text-black hover:bg-white/10 dark:text-white"
+                            className="border-white/10 bg-dark_gray text-black hover:bg-white/10 dark:text-white"
                         >
                             Cancel
                         </Button>

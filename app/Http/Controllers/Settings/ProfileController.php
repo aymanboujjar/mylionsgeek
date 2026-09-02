@@ -79,7 +79,7 @@ class ProfileController extends Controller
 
         Auth::logout();
 
-        $user->update(['account_state' => 1]);
+        $user->forceFill(['account_state' => 1])->save();
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();

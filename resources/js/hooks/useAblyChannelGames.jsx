@@ -10,6 +10,25 @@ export default function useAblyChannelGames(channelName, events = ['game-state-u
     const channelRef = useRef(null);
     const callbacksRef = useRef(new Map());
 
+    const fetchGamesToken = useCallback(async () => {
+        const response = await fetch('/api/games/ably-token', {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to get Ably token:', response.status, errorText);
+            throw new Error(`Failed to get Ably token: ${response.status} ${errorText}`);
+        }
+
+        return response.json();
+    }, []);
+
     // Initialize Ably connection with games token endpoint
     const initializeAbly = useCallback(async () => {
         if (ablyRef.current) {
@@ -17,26 +36,22 @@ export default function useAblyChannelGames(channelName, events = ['game-state-u
         }
 
         try {
-            // Get token from Laravel backend - games endpoint
-            const response = await fetch('/api/games/ably-token', {
-                method: 'GET',
-                headers: {
-                    Accept: 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-                credentials: 'same-origin',
-            });
+            const data = await fetchGamesToken();
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Failed to get Ably token:', response.status, errorText);
-                throw new Error(`Failed to get Ably token: ${response.status} ${errorText}`);
-            }
-
-            const data = await response.json();
-
-            // Initialize Ably with token
+            // authCallback re-requests a server-derived token after join/create.
             const ably = new Ably.Realtime({
+                authCallback: async (_tokenParams, callback) => {
+                    try {
+                        const fresh = await fetchGamesToken();
+                        if (!fresh?.token) {
+                            callback('Failed to fetch Ably token', null);
+                            return;
+                        }
+                        callback(null, fresh.token);
+                    } catch (err) {
+                        callback(err?.message || 'Ably token request failed', null);
+                    }
+                },
                 token: data.token,
                 clientId: data.clientId,
             });
@@ -75,20 +90,26 @@ export default function useAblyChannelGames(channelName, events = ['game-state-u
             }
             return null;
         }
-    }, [options]);
+    }, [fetchGamesToken, options]);
 
     // Subscribe to channel events - EXACTLY like useAblyChannel
     useEffect(() => {
         let mounted = true;
+        let retryAuthorize;
 
         const setupChannel = async () => {
-            const ably = await initializeAbly();
-            if (!ably || !mounted) return;
-
-            // Skip placeholder channels
+            // Skip placeholder channels — do not mint a token before the user joins.
             if (channelName === 'game:placeholder' || !channelName) {
                 return;
             }
+
+            if (ablyRef.current) {
+                ablyRef.current.close();
+                ablyRef.current = null;
+            }
+
+            const ably = await initializeAbly();
+            if (!ably || !mounted) return;
 
             try {
                 //console.log('🔔 Setting up Ably channel:', channelName, 'Events:', events);
@@ -118,6 +139,11 @@ export default function useAblyChannelGames(channelName, events = ['game-state-u
                 if (options.onSubscribed) {
                     options.onSubscribed(channel);
                 }
+
+                retryAuthorize = setTimeout(() => {
+                    if (!mounted || !ablyRef.current?.auth?.authorize) return;
+                    ablyRef.current.auth.authorize().catch(() => {});
+                }, 2000);
             } catch (error) {
                 console.error('Error setting up channel:', error);
                 setConnectionError(error);
@@ -131,6 +157,9 @@ export default function useAblyChannelGames(channelName, events = ['game-state-u
 
         return () => {
             mounted = false;
+            if (retryAuthorize) {
+                clearTimeout(retryAuthorize);
+            }
             if (channelRef.current) {
                 events.forEach((eventName) => {
                     channelRef.current.unsubscribe(eventName);

@@ -81,7 +81,7 @@ export default function GeekoLobby({ session, participant, participantsCount }) 
                 <div className="w-full max-w-2xl">
                     {/* Header */}
                     <div className="mb-12 text-center">
-                        {/* <div className="w-24 h-24 mx-auto mb-6 rounded-2xl backdrop-blur bg-white/50 dark:bg-dark/40 border border-white/20 flex items-center justify-center text-2xl font-bold text-alpha shadow">
+                        {/* <div className="w-24 h-24 mx-auto mb-6 rounded-2xl backdrop-blur bg-dark_gray0 dark:bg-dark/40 border border-white/20 flex items-center justify-center text-2xl font-bold text-alpha shadow">
                             QUIZ
                         </div> */}
                         {/* <h1 className="text-4xl font-extrabold text-dark dark:text-light mb-2">

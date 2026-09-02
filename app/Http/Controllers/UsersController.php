@@ -1105,7 +1105,19 @@ class UsersController extends Controller
 
         $previousStatus = $user->status;
 
+        $privileged = [];
+        foreach (['role', 'access_cowork', 'access_studio', 'access_scan'] as $field) {
+            if (array_key_exists($field, $validated)) {
+                $privileged[$field] = $validated[$field];
+                unset($validated[$field]);
+            }
+        }
+
         $user->update($validated);
+
+        if ($canEditOthers && $privileged !== []) {
+            $user->forceFill($privileged)->save();
+        }
 
         // When an admin manually certifies a user, reset the LinkedIn modal gate fields
         // so the share prompt appears on their next login, and ensure a share token exists.
@@ -1128,9 +1140,9 @@ class UsersController extends Controller
             'account_state' => 'required|integer|in:0,1'
         ]);
 
-        $user->update([
+        $user->forceFill([
             'account_state' => $validated['account_state'],
-        ]);
+        ])->save();
         // dd($user->account_state , $request->account_state);
 
         return redirect()->back()->with('success', 'User account status updated successfully');
@@ -1173,14 +1185,13 @@ class UsersController extends Controller
             $validated['image'] = $filename;
         }
         $plainPassword = Str::random(12);
-        $token = (string) Str::uuid();
         $lastUser = User::orderBy('id', 'desc')->first();
         // dd($lastUser->id);
-        $user = User::create([
+        $user = new User();
+        $user->forceFill([
             'id' => $lastUser->id + 1,
             'name' => $validated['name'],
             'email' => $validated['email'],
-            'activation_token' => $token,
             'password' => Hash::make($plainPassword),
             'phone' => $validated['phone'] ?? null,
             'image' => $validated['image'] ?? null,
@@ -1195,12 +1206,13 @@ class UsersController extends Controller
             'invite_source' => 'admin',
             'remember_token' => null,
             'email_verified_at' => null,
-        ]);
+        ])->save();
 
+        $plainToken = $user->issueActivationToken();
         $link = URL::temporarySignedRoute(
             'user.complete-profile',
-            now()->addHour(24),
-            ['token' => $token]
+            now()->addHours(User::ACTIVATION_TTL_HOURS),
+            ['token' => $plainToken]
         );
         Mail::to($user->email)->send(new UserWelcomeMail($user, $link));
 

@@ -54,6 +54,10 @@ return [
         'webhook_secret' => env('GITHUB_WEBHOOK_SECRET'),
     ],
 
+    'learning' => [
+        'secret' => env('LEARNING_CLIENT_SECRET'),
+    ],
+
     // Spotify is used for music-sticker search on stories. Credentials are
     // obtained via Client Credentials Flow (server-to-server). When tracks
     // don't have a preview_url, we fall back to iTunes Search for the

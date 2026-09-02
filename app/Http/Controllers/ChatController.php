@@ -8,6 +8,7 @@ use App\Models\Message;
 use App\Models\PostNotification;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\AblyCapabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -277,31 +278,27 @@ class ChatController extends Controller
     }
 
     /**
-     * Get Ably token for real-time messaging
-     * Jib token dial Ably bach n3tiw access l channels
+     * Get Ably token for real-time messaging.
+     * Capabilities are derived from conversations and projects the user belongs to.
      */
-    public function getAblyToken()
+    public function getAblyToken(AblyCapabilityService $capabilities)
     {
         $user = Auth::user();
-        
+        if (! $user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
         try {
             $ablyKey = config('services.ably.key');
             if (!$ablyKey) {
                 return response()->json(['error' => 'Ably not configured'], 500);
             }
 
-            // Generate token request using Ably PHP SDK
             $tokenRequest = [
-                'capability' => json_encode([
-                    'chat:conversation:*' => ['subscribe', 'publish'], // Access l kolchi conversations
-                    'feed:*' => ['subscribe'],
-                    'project:*' => ['subscribe', 'publish'], // Access l kolchi project channels
-                    'presence:*' => ['presence', 'subscribe'],
-                ]),
+                'capability' => $capabilities->encode($capabilities->chatCapabilities($user)),
                 'clientId' => (string) $user->id,
             ];
 
-            // Use Ably REST client to create token request
             $ably = new AblyRest($ablyKey);
             $tokenDetails = $ably->auth->requestToken($tokenRequest);
 
@@ -324,7 +321,12 @@ class ChatController extends Controller
             // Some message bodies are JSON payloads (e.g. post shares) and can be longer than typical text.
             // DB column is TEXT, so keep a reasonable ceiling to prevent abuse but avoid false 422s.
             'body' => 'nullable|string|max:20000',
-            'attachment' => 'nullable|file|max:10240', // 10MB max
+            'attachment' => [
+                'nullable',
+                'file',
+                'max:10240',
+                'mimetypes:'.implode(',', self::CHAT_ATTACHMENT_MIMETYPES),
+            ],
             'attachment_type' => 'nullable|in:file,audio,image,video',
         ]);
 
@@ -364,28 +366,13 @@ class ChatController extends Controller
 
         $attachmentPath = null;
         $attachmentName = null;
-        $attachmentType = $request->attachment_type;
+        $attachmentType = null;
 
         // Handle file upload
         if ($request->hasFile('attachment')) {
             $file = $request->file('attachment');
             $attachmentName = $file->getClientOriginalName();
-
-            // Determine attachment type if not provided
-            if (!$attachmentType) {
-                $mimeType = $file->getMimeType();
-                if (str_starts_with($mimeType, 'image/')) {
-                    $attachmentType = 'image';
-                } elseif (str_starts_with($mimeType, 'audio/')) {
-                    $attachmentType = 'audio';
-                } elseif (str_starts_with($mimeType, 'video/')) {
-                    $attachmentType = 'video';
-                } else {
-                    $attachmentType = 'file';
-                }
-            }
-
-            // Store file
+            $attachmentType = $this->chatAttachmentTypeFromMime($file->getMimeType());
             $attachmentPath = $file->store('chat/attachments', 'public');
         }
 
@@ -865,5 +852,48 @@ class ChatController extends Controller
 
         // Always return JSON for fetch requests
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Product-supported chat attachment MIME types.
+     * HTML, SVG, JS, PHP, and executables are intentionally excluded.
+     */
+    private const CHAT_ATTACHMENT_MIMETYPES = [
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'video/mp4',
+        'video/webm',
+        'video/quicktime',
+        'audio/mpeg',
+        'audio/mp3',
+        'audio/mp4',
+        'audio/x-m4a',
+        'audio/m4a',
+        'audio/wav',
+        'audio/x-wav',
+        'audio/wave',
+        'audio/webm',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+
+    private function chatAttachmentTypeFromMime(?string $mime): string
+    {
+        $mime = strtolower((string) $mime);
+
+        if (str_starts_with($mime, 'image/')) {
+            return 'image';
+        }
+        if (str_starts_with($mime, 'audio/')) {
+            return 'audio';
+        }
+        if (str_starts_with($mime, 'video/')) {
+            return 'video';
+        }
+
+        return 'file';
     }
 }

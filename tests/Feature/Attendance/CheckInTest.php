@@ -399,6 +399,7 @@ test('slot-status reports gap phase between slots', function () {
 });
 
 test('save defaults omitted slots to absent', function () {
+    $coach = createCheckInStudent(['role' => ['coach']]);
     $student = createCheckInStudent();
     $attendance = Attendance::create([
         'formation_id' => $this->formation->id,
@@ -406,7 +407,7 @@ test('save defaults omitted slots to absent', function () {
         'staff_name' => 'Test',
     ]);
 
-    $this->actingAs($student, 'sanctum')
+    $this->actingAs($coach, 'sanctum')
         ->withServerVariables(['REMOTE_ADDR' => '203.0.113.1'])
         ->postJson('/api/mobile/attendance/save', [
             'attendance' => [[

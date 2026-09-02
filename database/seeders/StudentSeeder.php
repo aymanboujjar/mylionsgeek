@@ -44,22 +44,20 @@ class StudentSeeder extends Seeder
         ];
 
         foreach ($students as $data) {
-            User::updateOrCreate(
-                ['email' => $data['email']],
-                [
-                    'name' => $data['name'],
-                    'password' => Hash::make('password'),
-                    'role' => ['student'],
-                    'status' => 'Studying',
-                    'formation_id' => $formation->id,
-                    'promo' => 5,
-                    'account_state' => 0,
-                    'access_studio' => 0,
-                    'access_cowork' => 0,
-                    'image' => 'pdp.png',
-                    'email_verified_at' => now(),
-                ]
-            );
+            $user = User::query()->firstOrNew(['email' => $data['email']]);
+            $user->forceFill([
+                'name' => $data['name'],
+                'password' => Hash::make('password'),
+                'role' => ['student'],
+                'status' => 'Studying',
+                'formation_id' => $formation->id,
+                'promo' => 5,
+                'account_state' => 0,
+                'access_studio' => 0,
+                'access_cowork' => 0,
+                'image' => 'pdp.png',
+                'email_verified_at' => now(),
+            ])->save();
         }
 
         $count = count($students);

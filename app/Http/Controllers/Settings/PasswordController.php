@@ -35,6 +35,8 @@ class PasswordController extends Controller
             'password' => $validated['password'],
         ])->save();
 
+        $request->user()->tokens()->delete();
+
         return back()->with('status', __('Password updated successfully.'));
     }
 }

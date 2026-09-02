@@ -201,7 +201,7 @@ export default function SendPostModal({ open, onOpenChange, post, defaultMessage
                                             type="button"
                                             onClick={() => setSelectedUserId(u.id)}
                                             className={cn(
-                                                'flex w-full items-center gap-3 p-3 text-left transition hover:bg-muted/40 dark:hover:bg-white/5',
+                                                'flex w-full items-center gap-3 p-3 text-left transition hover:bg-muted/40 dark:hover:bg-dark_gray',
                                                 selected && 'bg-muted/50 dark:bg-white/10',
                                             )}
                                         >

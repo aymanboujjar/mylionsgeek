@@ -27,35 +27,25 @@ class User extends Authenticatable
      * @var array<int, string>
      */
     protected $fillable = [
-        'id',               // UUID primary key
         'name',
         'email',
-        'password',
         'must_change_password',
-        'role',
         'phone',
         'cin',
         'status',
         'formation_id',
-        'account_state',
         'image',
         'resume',
         'cover', // add cover here
         'about', // short bio
         'speciality',
         'socials', // social links JSON
-        'access_cowork',
-        'access_studio',
-        'access_scan',
         'promo',
         'remember_token',
         'email_verified_at',
-        // 'remember_token',
         'created_at',
         'updated_at',
-        'wakatime_api_key',
         'last_online',
-        'activation_token',
         'invite_source',
         'expo_push_token', // Expo push notification token
         // 'xp'
@@ -69,6 +59,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'activation_token',
     ];
 
     /**
@@ -81,11 +72,146 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'last_online' => 'datetime',
+            'activation_token_expires_at' => 'datetime',
             'password' => 'hashed',
             'must_change_password' => 'boolean',
             'role' => 'array',
             'socials' => 'array',
         ];
+    }
+
+    public const ACTIVATION_TTL_HOURS = 24;
+
+    /**
+     * Issue a new activation credential. Returns the plaintext token for the
+     * signed email URL only — the database stores a hash.
+     */
+    public function issueActivationToken(): string
+    {
+        $plain = bin2hex(random_bytes(32));
+
+        $this->forceFill([
+            'activation_token' => hash('sha256', $plain),
+            'activation_token_expires_at' => now()->addHours(self::ACTIVATION_TTL_HOURS),
+        ])->save();
+
+        return $plain;
+    }
+
+    public function hasPendingActivation(): bool
+    {
+        return filled($this->getRawOriginal('activation_token') ?? $this->activation_token);
+    }
+
+    public function consumeActivationToken(): void
+    {
+        $this->forceFill([
+            'activation_token' => null,
+            'activation_token_expires_at' => null,
+        ])->save();
+    }
+
+    public static function findByActivationToken(string $plain): ?self
+    {
+        $plain = trim($plain);
+        if ($plain === '') {
+            return null;
+        }
+
+        $hashed = hash('sha256', $plain);
+
+        $user = static::query()
+            ->where('activation_token', $hashed)
+            ->orWhere('activation_token', $plain)
+            ->first();
+
+        if (! $user) {
+            return null;
+        }
+
+        $expiresAt = $user->activation_token_expires_at;
+        if ($expiresAt !== null && $expiresAt->isPast()) {
+            return null;
+        }
+
+        return $user;
+    }
+
+    /**
+     * Normalize role values from DB/casts (JSON arrays, comma lists, quoted strings).
+     *
+     * @return list<string>
+     */
+    public function normalizedRoles(): array
+    {
+        $cast = $this->role;
+        if (is_array($cast) && $cast !== []) {
+            return self::normalizeRolesValue($cast);
+        }
+
+        $raw = $this->getRawOriginal('role');
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+
+        return self::normalizeRolesValue($raw);
+    }
+
+    /**
+     * @param  mixed  $value
+     * @return list<string>
+     */
+    public static function normalizeRolesValue($value): array
+    {
+        if (is_array($value)) {
+            $list = $value;
+        } elseif (is_string($value) && $value !== '') {
+            $decoded = json_decode($value, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $list = $decoded;
+            } else {
+                $list = array_map('trim', explode(',', $value));
+            }
+        } else {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($list as $role) {
+            if ($role === null || $role === '') {
+                continue;
+            }
+            $role = strtolower(trim((string) $role));
+            $role = trim($role, "'\"");
+            if ($role !== '') {
+                $normalized[] = $role;
+            }
+        }
+
+        return array_values(array_unique($normalized));
+    }
+
+    /**
+     * Matches mobile userHasAdminRole: the `admin` role only.
+     */
+    public function isEventsAdmin(): bool
+    {
+        return in_array('admin', $this->normalizedRoles(), true);
+    }
+
+    /**
+     * Matches mobile userCanAccessScan: admin role or access_scan grant.
+     * Reads the authenticated user record only — never request body flags.
+     */
+    public function canAccessEventsScan(): bool
+    {
+        if ($this->isEventsAdmin()) {
+            return true;
+        }
+
+        $flag = $this->access_scan;
+
+        return $flag === 1 || $flag === true || $flag === '1';
     }
 
     public const RESUME_DISK = 'public';

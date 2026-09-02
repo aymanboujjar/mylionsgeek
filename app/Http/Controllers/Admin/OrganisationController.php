@@ -130,7 +130,8 @@ class OrganisationController extends Controller
             $lastUser = User::query()->orderByDesc('id')->first();
             $nextId = $lastUser ? ((int) $lastUser->id) + 1 : 1;
 
-            $accountUser = User::create([
+            $accountUser = new User();
+            $accountUser->forceFill([
                 'id' => $nextId,
                 'name' => $displayName,
                 'email' => $email,
@@ -147,7 +148,7 @@ class OrganisationController extends Controller
                 'role' => ['recruiter'],
                 'email_verified_at' => now(),
                 'activation_token' => null,
-            ]);
+            ])->save();
 
             $organization->update(['account_user_id' => $accountUser->id]);
 

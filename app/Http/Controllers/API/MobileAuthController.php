@@ -12,6 +12,8 @@ use Illuminate\Validation\ValidationException;
 
 class MobileAuthController extends Controller
 {
+    private const MOBILE_TOKEN_TTL_DAYS = 30;
+
     public function login(Request $request)
     {
         
@@ -34,19 +36,15 @@ class MobileAuthController extends Controller
             ], 403);
         }
 
-        // Issue Sanctum token
-        $token = $user->createToken('mobile')->plainTextToken;
+        $token = $user->createToken(
+            'mobile',
+            ['*'],
+            now()->addDays(self::MOBILE_TOKEN_TTL_DAYS)
+        )->plainTextToken;
 
         $user->forceFill(['last_online' => now()])->save();
 
-        // Handle roles - ensure it's always an array
-        $roles = [];
-        if (isset($user->role)) {
-            $roles = is_array($user->role) ? $user->role : (is_string($user->role) ? json_decode($user->role, true) ?? [$user->role] : [$user->role]);
-        }
-        if (empty($roles) && isset($user->roles)) {
-            $roles = is_array($user->roles) ? $user->roles : (is_string($user->roles) ? json_decode($user->roles, true) ?? [] : []);
-        }
+        $roles = $user->normalizedRoles();
 
         // Return full user data except sensitive fields (password, tokens)
         $userData = [
@@ -83,14 +81,13 @@ class MobileAuthController extends Controller
 
     public function forgot(Request $request)
     {
-        
         $request->validate(['email' => ['required', 'email']]);
-        $status = Password::sendResetLink($request->only('email'));
-        
-        
+
+        Password::sendResetLink($request->only('email'));
+
         return response()->json([
-            'status' => __($status),
-            'ok' => $status === Password::RESET_LINK_SENT,
+            'status' => 'A reset link will be sent if the account exists.',
+            'ok' => true,
         ]);
     }
 
@@ -119,8 +116,31 @@ class MobileAuthController extends Controller
             'password' => Hash::make($validated['password']),
         ])->save();
 
+        $user->tokens()->delete();
+
         return response()->json([
-            'message' => 'Password updated successfully.',
+            'message' => 'Password updated successfully. Please log in again.',
+            'must_relogin' => true,
+        ]);
+    }
+
+    public function logout(Request $request)
+    {
+        $bearer = $request->bearerToken();
+        if ($bearer) {
+            $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearer);
+            if ($accessToken) {
+                $accessToken->delete();
+            }
+        } else {
+            $token = $request->user()?->currentAccessToken();
+            if ($token instanceof \Laravel\Sanctum\PersonalAccessToken) {
+                $token->delete();
+            }
+        }
+
+        return response()->json([
+            'message' => 'Logged out successfully.',
         ]);
     }
 }

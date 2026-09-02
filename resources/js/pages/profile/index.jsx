@@ -9,7 +9,7 @@ import { Camera, Eye, EyeOff } from 'lucide-react';
 
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB — matches backend validation
 
-const CompleteProfile = ({ user, profileMeta = {} }) => {
+const CompleteProfile = ({ user, profileMeta = {}, submitUrl }) => {
     const fromLionsgeek = !!profileMeta.from_lionsgeek;
     const isChildren = !!profileMeta.is_children;
     const requirePhone = profileMeta.require_phone !== false && !fromLionsgeek;
@@ -115,11 +115,11 @@ const CompleteProfile = ({ user, profileMeta = {} }) => {
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = (userToken) => {
+    const handleSubmit = (submitUrl) => {
         setError('password', null);
         setError('password_confirmation', null);
 
-        if (!validateForm()) {
+        if (!validateForm() || !submitUrl) {
             return;
         }
 
@@ -132,7 +132,7 @@ const CompleteProfile = ({ user, profileMeta = {} }) => {
             delete payload.cin;
         }
 
-        router.post(`/complete-profile/update/${userToken}`, payload, {
+        router.post(submitUrl, payload, {
             onSuccess: () => {
                 window.location.href = '/login';
             },
@@ -314,8 +314,8 @@ const CompleteProfile = ({ user, profileMeta = {} }) => {
                         <div className="mt-6">
                             <Button
                                 type="button"
-                                onClick={() => handleSubmit(user.activation_token)}
-                                disabled={processing || compressingImage}
+                                onClick={() => handleSubmit(submitUrl)}
+                                disabled={processing || compressingImage || !submitUrl}
                                 className="w-full rounded-lg bg-alpha px-6 py-2.5 font-semibold text-black hover:bg-alpha hover:text-black"
                             >
                                 {processing ? 'Submitting...' : compressingImage ? 'Compressing image…' : 'Next'}

@@ -29,6 +29,9 @@ use App\Models\AccessRequestResponseNotification;
 class ReservationsController extends Controller
 {
     private const ACCESS_BYPASS_ROLES = ['admin', 'super_admin', 'moderateur', 'coach', 'studio_responsable'];
+
+    /** Web reservation staff who may view/cancel any reservation. Do not reuse H1/H2 sets. */
+    private const RESERVATION_STAFF_ROLES = ['admin', 'super_admin', 'moderateur', 'studio_responsable', 'pro'];
     public function index(Request $request)
     {
 
@@ -1375,6 +1378,8 @@ class ReservationsController extends Controller
             return back()->with('error', 'Cowork reservation not found');
         }
 
+        $this->denyUnlessReservationStaffOrOwner((int) ($reservationData->user_id ?? 0));
+
         // Get the user who made the reservation
         $user = DB::table('users')->where('id', $reservationData->user_id)->first();
         if (!$user) {
@@ -1623,7 +1628,36 @@ class ReservationsController extends Controller
     // Public calendar feed for place reservations (used by suggestion page)
     public function byPlacePublic(string $type, int $id)
     {
-        return $this->byPlace($type, $id);
+        $reservations = collect();
+
+        if ($type === 'studio' && Schema::hasTable('reservations')) {
+            $reservations = DB::table('reservations')
+                ->where('studio_id', $id)
+                ->where('canceled', 0)
+                ->select('day as start', 'start as startTime', 'end as endTime', 'approved', 'canceled')
+                ->get();
+        } elseif ($type === 'cowork' && Schema::hasTable('reservation_coworks')) {
+            $reservations = DB::table('reservation_coworks')
+                ->where('table', $id)
+                ->where('canceled', 0)
+                ->select('day as start', 'start as startTime', 'end as endTime', 'approved', 'canceled')
+                ->get();
+        } elseif ($type === 'meeting_room' && Schema::hasTable('reservation_meeting_rooms')) {
+            $reservations = DB::table('reservation_meeting_rooms')
+                ->where('meeting_room_id', $id)
+                ->where('canceled', 0)
+                ->select('day as start', 'start as startTime', 'end as endTime', 'approved', 'canceled')
+                ->get();
+        }
+
+        return response()->json($reservations->map(function ($r) {
+            return [
+                'start' => $r->start.'T'.$r->startTime,
+                'end' => $r->start.'T'.$r->endTime,
+                'approved' => (bool) $r->approved,
+                'canceled' => (bool) $r->canceled,
+            ];
+        })->values());
     }
 
     private function buildProposalToken(array $payload): string
@@ -2702,11 +2736,11 @@ class ReservationsController extends Controller
             )
             ->first();
 
-        // if (!$reservationData) {
-        //     return Inertia::render('reservations/ReservationDetails', [
-        //         'reservation' => null
-        //     ]);
-        // }
+        if (!$reservationData) {
+            abort(404);
+        }
+
+        $this->denyUnlessReservationStaffOrOwner((int) ($reservationData->user_id ?? 0));
 
         // Normalize user avatar path
         $userAvatar = $reservationData->user_avatar ?? null;
@@ -2915,6 +2949,8 @@ class ReservationsController extends Controller
             return back()->with('error', 'Meeting room reservation not found');
         }
 
+        $this->denyUnlessReservationStaffOrOwner((int) ($reservationData->user_id ?? 0));
+
         $user = DB::table('users')->where('id', $reservationData->user_id)->first();
         if (!$user) {
             return back()->with('error', 'User not found');
@@ -2983,6 +3019,43 @@ class ReservationsController extends Controller
 
         if ($email) {
             Mail::to($email)->send($mailable);
+        }
+    }
+
+    private function userIsReservationStaff($user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        $roles = $this->normalizeRolesList(data_get($user, 'role'));
+
+        return ! empty(array_intersect($roles, self::RESERVATION_STAFF_ROLES));
+    }
+
+    private function denyUnlessReservationStaffOrOwner(int $ownerId): void
+    {
+        $user = auth()->user();
+        if (! $user) {
+            abort(403, 'Forbidden');
+        }
+
+        if ((int) $user->id === $ownerId) {
+            return;
+        }
+
+        if ($this->userIsReservationStaff($user)) {
+            return;
+        }
+
+        abort(403, 'Forbidden');
+    }
+
+    private function denyUnlessAppointmentPerson(object $appointmentData): void
+    {
+        $personEmail = $this->getPersonEmailByUser(auth()->user());
+        if (! $personEmail || strcasecmp((string) ($appointmentData->person_email ?? ''), $personEmail) !== 0) {
+            abort(403, 'Forbidden');
         }
     }
 
@@ -3553,6 +3626,8 @@ class ReservationsController extends Controller
             return back()->with('error', 'Appointment not found');
         }
 
+        $this->denyUnlessAppointmentPerson($appointmentData);
+
         // Get requester user
         $requester = DB::table('users')->where('id', $appointmentData->user_id)->first();
         if (!$requester) {
@@ -3617,6 +3692,8 @@ class ReservationsController extends Controller
             return back()->with('error', 'Appointment not found');
         }
 
+        $this->denyUnlessAppointmentPerson($appointmentData);
+
         // Get requester user
         $requester = DB::table('users')->where('id', $appointmentData->user_id)->first();
         if (!$requester) {
@@ -3665,6 +3742,8 @@ class ReservationsController extends Controller
         if (!$appointmentData) {
             return back()->with('error', 'Appointment not found');
         }
+
+        $this->denyUnlessAppointmentPerson($appointmentData);
 
         // Validate that end time is after start time
         $startTime = strtotime($validated['suggested_start']);

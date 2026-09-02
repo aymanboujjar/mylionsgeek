@@ -7,6 +7,10 @@ use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RoleMiddleware;
 use App\Http\Middleware\UpdateLastOnline;
 use App\Http\Middleware\UpdateRolesUsers;
+use App\Http\Middleware\AuthorizeStudentInvite;
+use App\Http\Middleware\EnsureEventsInfoScanAccess;
+use App\Http\Middleware\EnsureAttendanceStaffRole;
+use App\Http\Middleware\EnsureTrainingManagementRole;
 use App\Http\Middleware\VerifyLearning;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -42,7 +46,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => RoleMiddleware::class,
             'organisation.onboarded' => EnsureOrganisationOnboarded::class,
             'school.network' => EnsureOnSchoolNetwork::class,
-            "learning" => VerifyLearning::class,
+            'learning' => VerifyLearning::class,
+            'invite.student' => AuthorizeStudentInvite::class,
+            'events.info.scan' => EnsureEventsInfoScanAccess::class,
+            'training.manage' => EnsureTrainingManagementRole::class,
+            'attendance.staff' => EnsureAttendanceStaffRole::class,
         ]));
 
         $middleware->web(append: [

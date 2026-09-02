@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Services\AblyCapabilityService;
 use App\Services\CallService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -151,29 +152,23 @@ class CallController extends Controller
      * Get Ably token for call signaling.
      *
      * Capabilities granted:
-     *   call:user:{id}         – subscribe to incoming/accepted/rejected events
-     *                            (kept as a wildcard for simplicity since
-     *                            non-matching channels are still filtered by
-     *                            our application logic)
-     *   webrtc:*               – publish/subscribe for WebRTC signaling
-     *                            (offer/answer/ICE candidates) during an
-     *                            active 1-on-1 call. The channel name is
-     *                            the call's unique channel_name so no two
-     *                            calls overlap.
+     *   call:user:{authId}     – subscribe to this user's incoming/accepted/rejected events
+     *   webrtc:{channel_name}  – publish/subscribe/presence for pending/ongoing calls
+     *                            the user is caller or callee of
      */
-    public function getAblyToken(): JsonResponse
+    public function getAblyToken(AblyCapabilityService $capabilities): JsonResponse
     {
         $user = Auth::user();
+        if (! $user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
         try {
             $ablyKey = config('services.ably.key');
             if (!$ablyKey) {
                 return response()->json(['error' => 'Ably not configured'], 500);
             }
             $tokenRequest = [
-                'capability' => json_encode([
-                    'call:user:*' => ['subscribe'],
-                    'webrtc:*'    => ['publish', 'subscribe', 'presence'],
-                ]),
+                'capability' => $capabilities->encode($capabilities->callCapabilities($user)),
                 'clientId' => (string) $user->id,
             ];
             $ably = new AblyRest($ablyKey);

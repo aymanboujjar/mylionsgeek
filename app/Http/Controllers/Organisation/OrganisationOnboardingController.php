@@ -110,9 +110,11 @@ class OrganisationOnboardingController extends Controller
         $user->update([
             'name' => $validated['contact_name'],
             'phone' => $validated['phone'],
-            'password' => $validated['password'],
             'must_change_password' => false,
         ]);
+        $user->forceFill([
+            'password' => $validated['password'],
+        ])->save();
 
         return redirect()->route('recruiter.dashboard')->with('success', __('Your organisation profile is complete.'));
     }
@@ -212,10 +214,10 @@ class OrganisationOnboardingController extends Controller
             'password' => ['required', Password::defaults(), 'confirmed'],
         ]);
 
-        $user->update([
+        $user->forceFill([
             'password' => $validated['password'],
             'must_change_password' => false,
-        ]);
+        ])->save();
 
         return redirect()->route('recruiter.dashboard')->with('success', __('Your password has been updated.'));
     }

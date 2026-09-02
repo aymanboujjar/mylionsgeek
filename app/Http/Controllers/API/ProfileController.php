@@ -9,25 +9,26 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
 {
+    private function authenticatedUser(): ?User
+    {
+        $user = Auth::guard('sanctum')->user() ?? Auth::user();
+
+        return $user instanceof User ? $user : null;
+    }
+
     public function index(Request $request)
     {
-        $user = Auth::user();
+        $user = $this->authenticatedUser();
 
         if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
-        // Handle roles - ensure it's always an array
-        $roles = [];
-        if (isset($user->role)) {
-            $roles = is_array($user->role) ? $user->role : (is_string($user->role) ? json_decode($user->role, true) ?? [$user->role] : [$user->role]);
-        }
-        if (empty($roles) && isset($user->roles)) {
-            $roles = is_array($user->roles) ? $user->roles : (is_string($user->roles) ? json_decode($user->roles, true) ?? [] : []);
-        }
+        $roles = $user->normalizedRoles();
 
         // Check if user is admin
         $isAdmin = in_array('admin', array_map('strtolower', $roles)) || in_array('coach', array_map('strtolower', $roles));
@@ -134,17 +135,13 @@ class ProfileController extends Controller
 
     public function show(Request $request, $userId)
     {
-        $currentUser = Auth::guard('sanctum')->user();
+        $currentUser = $this->authenticatedUser();
 
         if (! $currentUser) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
-        $currentUserRoles = [];
-        if (isset($currentUser->role)) {
-            $currentUserRoles = is_array($currentUser->role) ? $currentUser->role : (is_string($currentUser->role) ? json_decode($currentUser->role, true) ?? [$currentUser->role] : [$currentUser->role]);
-        }
-        $currentUserRolesLower = array_map('strtolower', $currentUserRoles);
+        $currentUserRolesLower = $currentUser->normalizedRoles();
         $isRecruiter = in_array('recruiter', $currentUserRolesLower, true);
         if ($isRecruiter && (int) $userId !== (int) $currentUser->id) {
             return response()->json(['message' => 'Forbidden'], 403);
@@ -159,11 +156,7 @@ class ProfileController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
-        // Handle roles
-        $roles = [];
-        if (isset($user->role)) {
-            $roles = is_array($user->role) ? $user->role : (is_string($user->role) ? json_decode($user->role, true) ?? [$user->role] : [$user->role]);
-        }
+        $roles = $user->normalizedRoles();
 
         $isAdmin = in_array('admin', $currentUserRolesLower, true) || in_array('coach', $currentUserRolesLower, true);
 
@@ -255,7 +248,7 @@ class ProfileController extends Controller
      */
     public function updateProfile(Request $request)
     {
-        $user = Auth::guard('sanctum')->user();
+        $user = $this->authenticatedUser();
 
         if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -263,7 +256,7 @@ class ProfileController extends Controller
 
         $data = $request->validate([
             'name'   => 'sometimes|string|max:255',
-            'email'  => 'sometimes|email|max:255',
+            'email'  => ['sometimes', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'phone'  => 'sometimes|nullable|string|max:30',
             'status' => 'sometimes|nullable|string|max:255',
             'speciality' => 'sometimes|nullable|string|max:255',
@@ -313,7 +306,7 @@ class ProfileController extends Controller
      */
     public function updateCover(Request $request)
     {
-        $user = Auth::guard('sanctum')->user();
+        $user = $this->authenticatedUser();
 
         if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -356,7 +349,7 @@ class ProfileController extends Controller
      */
     public function listSocialLinks(Request $request)
     {
-        $user = Auth::guard('sanctum')->user();
+        $user = $this->authenticatedUser();
 
         if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -372,7 +365,7 @@ class ProfileController extends Controller
      */
     public function addSocialLink(Request $request)
     {
-        $user = Auth::guard('sanctum')->user();
+        $user = $this->authenticatedUser();
 
         if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -380,7 +373,7 @@ class ProfileController extends Controller
 
         $data = $request->validate([
             'title' => 'required|string|max:80',
-            'url'   => 'required|string|max:2048',
+            'url'   => ['required', 'string', 'max:2048', 'url:http,https'],
         ]);
 
         $link = UserSocialLink::create([
@@ -398,7 +391,7 @@ class ProfileController extends Controller
      */
     public function deleteSocialLink(Request $request, int $id)
     {
-        $user = Auth::guard('sanctum')->user();
+        $user = $this->authenticatedUser();
 
         if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -424,7 +417,7 @@ class ProfileController extends Controller
      */
     public function listFollowers(Request $request, int $userId)
     {
-        $currentUser = Auth::guard('sanctum')->user();
+        $currentUser = $this->authenticatedUser();
 
         if (! $currentUser) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -456,7 +449,7 @@ class ProfileController extends Controller
      */
     public function listFollowing(Request $request, int $userId)
     {
-        $currentUser = Auth::guard('sanctum')->user();
+        $currentUser = $this->authenticatedUser();
 
         if (! $currentUser) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -486,7 +479,7 @@ class ProfileController extends Controller
      */
     public function follow(Request $request, int $userId)
     {
-        $currentUser = Auth::guard('sanctum')->user();
+        $currentUser = $this->authenticatedUser();
 
         if (! $currentUser) {
             return response()->json(['message' => 'Unauthenticated'], 401);

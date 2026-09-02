@@ -29,35 +29,33 @@ class UserController extends Controller
 
         $existing = User::query()->where('email', $data['email'])->first();
         if ($existing) {
-            $existing->fill([
-                'name' => $data['name'],
-                'phone' => $data['phone'] ?: $existing->phone,
-                'image' => $data['image'] ?: $existing->image,
-                'invite_source' => $inviteSource,
-                'activation_token' => (string) Str::uuid(),
-            ]);
-            $existing->save();
+            if ($existing->hasPendingActivation()) {
+                $existing->fill([
+                    'name' => $data['name'],
+                    'phone' => $data['phone'] ?: $existing->phone,
+                    'image' => $data['image'] ?? $existing->image,
+                    'invite_source' => $inviteSource,
+                ]);
+                $existing->save();
 
-            $mailSent = $this->sendCompleteProfileEmail($existing);
+                $mailSent = $this->sendCompleteProfileEmail($existing);
+            } else {
+                $mailSent = false;
+            }
 
             return response()->json([
                 'status' => 'exists',
                 'mail_sent' => $mailSent,
-                'mail_mailer' => config('mail.default'),
-                'data' => $existing,
             ]);
         }
 
-        $token = (string) Str::uuid();
-
-        $user = User::create([
+        $user = new User();
+        $user->forceFill([
             'name' => $data['name'],
             'email' => $data['email'],
-            'activation_token' => $token,
-            // Let the 'hashed' cast hash once (do not Hash::make here).
             'password' => Str::random(32),
             'phone' => $data['phone'] ?: null,
-            'image' => $data['image'] ?: 'pdp.png',
+            'image' => $data['image'] ?? 'pdp.png',
             'status' => 'Studying',
             'cin' => null,
             'formation_id' => null,
@@ -68,15 +66,13 @@ class UserController extends Controller
             'invite_source' => $inviteSource,
             'remember_token' => null,
             'email_verified_at' => null,
-        ]);
+        ])->save();
 
         $mailSent = $this->sendCompleteProfileEmail($user);
 
         return response()->json([
             'status' => 'created',
             'mail_sent' => $mailSent,
-            'mail_mailer' => config('mail.default'),
-            'data' => $user,
         ]);
     }
 
@@ -86,15 +82,12 @@ class UserController extends Controller
     private function sendCompleteProfileEmail(User $user): bool
     {
         try {
-            if (! $user->activation_token) {
-                $user->activation_token = (string) Str::uuid();
-                $user->save();
-            }
+            $plainToken = $user->issueActivationToken();
 
             $link = URL::temporarySignedRoute(
                 'user.complete-profile',
-                now()->addHours(24),
-                ['token' => $user->activation_token]
+                now()->addHours(User::ACTIVATION_TTL_HOURS),
+                ['token' => $plainToken]
             );
 
             Mail::to($user->email)->send(new UserWelcomeMail($user, $link));

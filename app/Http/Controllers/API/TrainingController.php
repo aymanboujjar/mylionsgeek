@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\EnsureTrainingManagementRole;
 use App\Models\Attendance;
 use App\Models\AttendanceListe;
 use App\Models\Note;
@@ -205,21 +206,30 @@ class TrainingController extends Controller
             return $checkResult;
         }
 
+        $auth = Auth::guard('sanctum')->user();
+        $canManage = $auth instanceof User && EnsureTrainingManagementRole::allows($auth);
+
+        if (! $canManage && ! $auth->isEnrolledInFormation((int) $id)) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
         $training = Formation::with(['coach', 'users'])->findOrFail($id);
-        
-        $usersNull = User::whereNull('formation_id')->get()->map(function ($user) {
-            $img = $user->image;
-            if ($img && !Str::startsWith($img, ['http://', 'https://', 'storage/'])) {
-                $img = 'storage/img/profile/' . ltrim($img, '/');
-            }
-            
-            return [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'image' => $img ? asset($img) : null,
-            ];
-        });
+
+        $usersNull = $canManage
+            ? User::whereNull('formation_id')->get()->map(function ($user) {
+                $img = $user->image;
+                if ($img && !Str::startsWith($img, ['http://', 'https://', 'storage/'])) {
+                    $img = 'storage/img/profile/' . ltrim($img, '/');
+                }
+
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'image' => $img ? asset($img) : null,
+                ];
+            })
+            : null;
 
         $img = $training->img;
         if ($img && !Str::startsWith($img, ['http://', 'https://', 'storage/'])) {
@@ -265,10 +275,15 @@ class TrainingController extends Controller
             'updated_at' => $training->updated_at ? (is_string($training->updated_at) ? $training->updated_at : $training->updated_at->toDateTimeString()) : null,
         ];
 
-        return response()->json([
+        $payload = [
             'training' => $trainingData,
-            'usersNull' => $usersNull,
-        ]);
+        ];
+
+        if ($canManage) {
+            $payload['usersNull'] = $usersNull;
+        }
+
+        return response()->json($payload);
     }
 
     public function store(Request $request)
@@ -393,16 +408,6 @@ class TrainingController extends Controller
             return $checkResult;
         }
 
-        // SECURITY: this route is only guarded by auth:sanctum, so authorization must be
-        // enforced here. Only privileged actors may change roles — otherwise any
-        // authenticated user enrolled in a training can promote themselves to admin.
-        $actor = $request->user();
-        $actorRoles = is_array($actor->role) ? $actor->role : array_filter([(string) $actor->role]);
-        $canManageRoles = ! empty(array_intersect(
-            array_map('strtolower', $actorRoles),
-            ['admin', 'super_admin', 'moderateur', 'coach']
-        ));
-
         $validated = $request->validate([
             'user_ids' => 'required|array|min:1',
             'user_ids.*' => 'required|exists:users,id',
@@ -427,7 +432,7 @@ class TrainingController extends Controller
         foreach ($users as $user) {
             $updateData = [];
 
-            if ($request->has('roles') && !empty($validated['roles']) && $canManageRoles) {
+            if ($request->has('roles') && !empty($validated['roles'])) {
                 $updateData['role'] = array_values(array_map(function ($r) {
                     return strtolower((string) $r);
                 }, array_filter($validated['roles'])));
@@ -438,7 +443,7 @@ class TrainingController extends Controller
             }
 
             if (!empty($updateData)) {
-                $user->update($updateData);
+                $user->forceFill($updateData)->save();
                 $updated++;
             }
         }
