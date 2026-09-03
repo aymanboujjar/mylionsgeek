@@ -16,7 +16,8 @@ require __DIR__ . '/general/appointments.php';
 require __DIR__ . '/general/authenticated.php';
 require __DIR__ . '/general/notifications.php';
 require __DIR__ . '/general/learning.php';
-require __DIR__ . '/general/inject-students.php';
+// One-shot /inject-student is local-only — do not load in production.
+// require __DIR__ . '/general/inject-students.php';
 require __DIR__ . '/general/debug.php';
 
 // Auth & user settings
