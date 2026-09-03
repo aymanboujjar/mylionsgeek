@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->enum('program_status', ['active', 'certified', 'not_certified', 'left'])
+            $table->enum('program_status', ['active', 'laureate', 'alumni', 'left'])
                 ->nullable()
                 ->after('status');
         });
