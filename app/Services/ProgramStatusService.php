@@ -109,16 +109,42 @@ class ProgramStatusService
     }
 
     /**
+     * Bulk-mark successful certificate recipients as certified.
+     *
+     * Idempotent: rows already certified are left unchanged.
+     *
+     * @param  list<int>  $userIds
+     * @return int Number of rows updated.
+     */
+    public function markCertified(array $userIds): int
+    {
+        $userIds = array_values(array_unique(array_map('intval', $userIds)));
+
+        if ($userIds === []) {
+            return 0;
+        }
+
+        return User::query()
+            ->whereIn('id', $userIds)
+            ->where(function ($query) {
+                $query->whereNull('program_status')
+                    ->orWhere('program_status', '!=', self::CERTIFIED);
+            })
+            ->update(['program_status' => self::CERTIFIED]);
+    }
+
+    /**
      * After certificates are printed: unselected active students become not_certified.
      * Left, certified, and not_certified students are unchanged.
      *
      * @param  list<int>  $certifiedUserIds
+     * @return int Number of rows updated.
      */
-    public function markUnselectedActiveStudentsAsNotCertified(Formation $training, array $certifiedUserIds): void
+    public function markUnselectedActiveStudentsAsNotCertified(Formation $training, array $certifiedUserIds): int
     {
         $certifiedUserIds = array_values(array_unique(array_map('intval', $certifiedUserIds)));
 
-        User::query()
+        return User::query()
             ->where('formation_id', $training->id)
             ->when($certifiedUserIds !== [], fn ($query) => $query->whereNotIn('id', $certifiedUserIds))
             ->where(function ($query) {

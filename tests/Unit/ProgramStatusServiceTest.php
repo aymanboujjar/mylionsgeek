@@ -100,10 +100,22 @@ it('should_mark_unselected_active_students_as_not_certified', function () {
     $certified = makeUser(['formation_id' => 1, 'program_status' => ProgramStatusService::ACTIVE]);
     $unselected = makeUser(['formation_id' => 1, 'program_status' => ProgramStatusService::ACTIVE]);
 
-    $this->service->markUnselectedActiveStudentsAsNotCertified($training, [$certified->id]);
+    $updated = $this->service->markUnselectedActiveStudentsAsNotCertified($training, [$certified->id]);
 
+    expect($updated)->toBe(1);
     expect($unselected->fresh()->program_status)->toBe(ProgramStatusService::NOT_CERTIFIED);
     expect($certified->fresh()->program_status)->toBe(ProgramStatusService::ACTIVE);
+});
+
+it('should_bulk_mark_users_as_certified', function () {
+    $active = makeUser(['program_status' => ProgramStatusService::ACTIVE]);
+    $already = makeUser(['program_status' => ProgramStatusService::CERTIFIED]);
+
+    $updated = $this->service->markCertified([$active->id, $already->id]);
+
+    expect($updated)->toBe(1);
+    expect($active->fresh()->program_status)->toBe(ProgramStatusService::CERTIFIED);
+    expect($already->fresh()->program_status)->toBe(ProgramStatusService::CERTIFIED);
 });
 
 it('should_not_change_program_status_when_student_has_left', function () {

@@ -746,7 +746,7 @@ class FormationController extends Controller
             );
         }
 
-        $programStatusService->markUnselectedActiveStudentsAsNotCertified($training, $certifiedUserIds);
+        $this->recordCertificatePrint($training, $certifiedUserIds, $programStatusService);
 
         return response()
             ->download($tmpZipPath, 'certificats-'.$training->id.'.zip', [
@@ -908,13 +908,46 @@ class FormationController extends Controller
             );
         }
 
-        $programStatusService->markUnselectedActiveStudentsAsNotCertified($training, $certifiedUserIds);
+        $this->recordCertificatePrint($training, $certifiedUserIds, $programStatusService);
 
         return response()->json([
             'success' => true,
             'queued' => $queuedCount,
             'skipped' => $skipped,
             'message' => $queuedCount.' certificat(s) généré(s) et e-mail(s) mis en file d’attente.',
+        ]);
+    }
+
+    /**
+     * Advance the program lifecycle after at least one certificate was generated.
+     *
+     * Certified recipients and the not_certified sweep share one transaction so a
+     * cohort is never left half-updated. Both writes are logged for audit.
+     *
+     * @param  list<int>  $certifiedUserIds  Students who successfully received a certificate.
+     */
+    private function recordCertificatePrint(
+        Formation $training,
+        array $certifiedUserIds,
+        ProgramStatusService $programStatusService,
+    ): void {
+        $certifiedUserIds = array_values(array_unique(array_map('intval', $certifiedUserIds)));
+
+        if ($certifiedUserIds === []) {
+            return;
+        }
+
+        [$certified, $notCertified] = DB::transaction(fn () => [
+            $programStatusService->markCertified($certifiedUserIds),
+            $programStatusService->markUnselectedActiveStudentsAsNotCertified($training, $certifiedUserIds),
+        ]);
+
+        Log::info('Certificate print advanced program status', [
+            'training_id' => $training->id,
+            'actor_id' => Auth::id(),
+            'certified' => $certified,
+            'certified_user_ids' => $certifiedUserIds,
+            'not_certified' => $notCertified,
         ]);
     }
 
