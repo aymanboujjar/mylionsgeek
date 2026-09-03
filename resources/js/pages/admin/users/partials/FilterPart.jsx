@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { GENDER_OPTIONS, HANDICAP_OPTIONS, PROGRAM_STATUS_OPTIONS } from '@/components/helpers/userDemographics';
+import { usePage } from '@inertiajs/react';
 import { Filter, RotateCw, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
@@ -25,6 +26,9 @@ const FALLBACK_FILTERS = {
 const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, fields = [], initialFilters }) => {
     const [open, setOpen] = useState(false);
     const resetValues = initialFilters ? { ...initialFilters } : FALLBACK_FILTERS;
+    const { auth } = usePage().props;
+    const userRoles = Array.isArray(auth?.user?.role) ? auth.user.role : [auth?.user?.role];
+    const canFilterHandicap = userRoles.some((r) => ['admin', 'super_admin'].includes(String(r).toLowerCase()));
 
     const handleChange = (field, value) => {
         setFilters((prev) => ({ ...prev, [field]: value }));
@@ -225,6 +229,7 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, f
                             </Select>
                         </div>
 
+                        {canFilterHandicap && (
                         <div className="space-y-2">
                             <Label>Handicap</Label>
                             <Select
@@ -244,6 +249,7 @@ const FilterPart = ({ filters, setFilters, allPromo, trainings, roles, status, f
                                 </SelectContent>
                             </Select>
                         </div>
+                        )}
 
                         <div className="space-y-2">
                             <Label>Program status</Label>

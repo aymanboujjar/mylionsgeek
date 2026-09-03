@@ -45,6 +45,7 @@ Route::get('/equipment', [ReservationController::class, 'getEquipment'])
     ->name('admin.api.equipment');
 
 Route::get('/places', [PlacesController::class, 'getPlacesJson'])
+    ->middleware('auth:sanctum')
     ->name('admin.api.places');
 
 Route::post('/reservations/store', [ReservationController::class, 'storemobile'])
@@ -64,6 +65,7 @@ Route::middleware('auth:sanctum')->prefix('mobile')->group(function () {
     require __DIR__ . '/api/leaderboard.php';
     require __DIR__ . '/api/search.php';
     require __DIR__ . '/api/training.php';
+    require __DIR__ . '/api/face-enrollment.php';
     require __DIR__ . '/api/notifications.php';
 
     Route::post('/password', [MobileAuthController::class, 'updatePassword']);

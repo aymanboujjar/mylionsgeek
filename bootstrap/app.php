@@ -31,12 +31,19 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Trust all proxies so HTTPS reverse proxies (ngrok, load balancers) work correctly
+        // Trust only explicitly configured reverse proxies. Empty = none (use REMOTE_ADDR).
+        // Set TRUSTED_PROXIES=127.0.0.1 for local nginx/Caddy, or comma-separated CIDRs
+        // for a load balancer. Use * only for local tunnels (accepts X-Forwarded-For spoof risk).
+        $trustedProxiesRaw = env('TRUSTED_PROXIES');
+        $trustedProxies = match (true) {
+            $trustedProxiesRaw === null, $trustedProxiesRaw === '' => [],
+            trim((string) $trustedProxiesRaw) === '*' => '*',
+            default => array_values(array_filter(array_map('trim', explode(',', (string) $trustedProxiesRaw)))),
+        };
+
         $middleware->trustProxies(
-            at: '*',
-            // this is the headers that are used to trust the proxies without it the $request->ip() will return the wrong ip address
+            at: $trustedProxies,
             headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST | Request::HEADER_X_FORWARDED_PROTO | Request::HEADER_X_FORWARDED_PORT
-           
         );
 
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);

@@ -159,12 +159,17 @@ class ProfileController extends Controller
         $roles = $user->normalizedRoles();
 
         $isAdmin = in_array('admin', $currentUserRolesLower, true) || in_array('coach', $currentUserRolesLower, true);
+        $isOwnProfile = (int) $userId === (int) $currentUser->id;
+        $canViewEmail = $isOwnProfile || $isAdmin || in_array('super_admin', $currentUserRolesLower, true)
+            || in_array('moderateur', $currentUserRolesLower, true)
+            || in_array('studio_responsable', $currentUserRolesLower, true)
+            || in_array('responsable_studio', $currentUserRolesLower, true);
 
-        // Base user data
+        // Base user data — peer email is owner/staff only (H3).
         $userData = [
             'id' => $user->id,
             'name' => $user->name,
-            'email' => $user->email,
+            'email' => $canViewEmail ? $user->email : null,
             // 'avatar' => $user->image ? url('storage/'.$user->image) : null,
             'cover' => $user->cover,
             'image' => $user->image,
@@ -260,7 +265,7 @@ class ProfileController extends Controller
             'phone'  => 'sometimes|nullable|string|max:30',
             'status' => 'sometimes|nullable|string|max:255',
             'speciality' => 'sometimes|nullable|string|max:255',
-            'image'  => 'sometimes|file|image|max:4096',
+            'image'  => 'sometimes|file|image|mimes:jpeg,jpg,png,webp,gif|max:4096',
             'resume' => 'sometimes|file|mimes:pdf,doc,docx|max:10240',
         ]);
 
@@ -313,7 +318,7 @@ class ProfileController extends Controller
         }
 
         $data = $request->validate([
-            'cover' => 'required|file|image|max:6144',
+            'cover' => 'required|file|image|mimes:jpeg,jpg,png,webp,gif|max:6144',
         ]);
 
         $file = $request->file('cover');
@@ -373,7 +378,7 @@ class ProfileController extends Controller
 
         $data = $request->validate([
             'title' => 'required|string|max:80',
-            'url'   => ['required', 'string', 'max:2048', 'url:http,https'],
+            'url'   => UserSocialLink::URL_RULES,
         ]);
 
         $link = UserSocialLink::create([

@@ -472,7 +472,7 @@ class FormationController extends Controller
             'user_ids' => 'required|array|min:1',
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
-            'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
+            'roles.*' => 'nullable|string|in:'.implode(',', User::ASSIGNABLE_ROLES),
             'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing',
         ]);
 
@@ -482,6 +482,10 @@ class FormationController extends Controller
 
         if ($users->isEmpty()) {
             return back()->with('error', 'No valid users found for this training.');
+        }
+
+        if ($request->has('roles') && ! empty($validated['roles'])) {
+            Auth::user()->assertMayAssignRoles($validated['roles']);
         }
 
         $updated = 0;

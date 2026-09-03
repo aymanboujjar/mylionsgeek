@@ -363,15 +363,17 @@ test('coach can manage attendance for any training', function () {
 
 test('enrolled student on school network can still self check-in', function () {
     Carbon::setTestNow(Carbon::parse(Carbon::now()->toDateString().' 09:42:00', 'Africa/Casablanca'));
+    bindVerifiedFaceVerifier();
 
     $student = h2User(['student']);
 
     $this->actingAs($student, 'sanctum')
         ->withServerVariables(['REMOTE_ADDR' => '203.0.113.1'])
-        ->postJson('/api/mobile/attendance/check-in', [
+        ->post('/api/mobile/attendance/check-in', [
             'formation_id' => $this->ownFormation->id,
             'attendance_day' => Carbon::now()->toDateString(),
-        ])
+            'live_photo' => m8LivePhoto(),
+        ], ['Accept' => 'application/json'])
         ->assertOk()
         ->assertJson([
             'slot' => 'morning',

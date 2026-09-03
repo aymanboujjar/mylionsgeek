@@ -6,6 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class UserSocialLink extends Model
 {
+    /**
+     * Shared URL validation for web and API social-link writes.
+     * Only http/https schemes are allowed.
+     */
+    public const URL_RULES = ['required', 'string', 'max:2048', 'url:http,https'];
+
     protected $fillable = [
         'user_id',
         'title',

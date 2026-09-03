@@ -20,6 +20,8 @@ export default function AdminUserProfile({
     absences,
     discipline,
     roles,
+    canEnrollFace = false,
+    faceEnrollment = null,
 }) {
     //console.log(posts);
 
@@ -31,7 +33,14 @@ export default function AdminUserProfile({
                     <div className="mx-auto max-w-7xl px-6">
                         <ProfileStatsGrid user={user} />
                         <ProfileMainContent
-                            sidebar={<ProfileSidebar user={user} assignedComputer={assignedComputer} />}
+                            sidebar={
+                                <ProfileSidebar
+                                    user={user}
+                                    assignedComputer={assignedComputer}
+                                    canEnrollFace={canEnrollFace}
+                                    faceEnrollment={faceEnrollment}
+                                />
+                            }
                             tabs={{
                                 posts: <PostsTab posts={posts} user={user} />,
                                 attendance: <AttendanceTab absences={absences} discipline={discipline} />,

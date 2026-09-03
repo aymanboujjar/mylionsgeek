@@ -413,7 +413,7 @@ class TrainingController extends Controller
             'user_ids' => 'required|array|min:1',
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
-            'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
+            'roles.*' => 'nullable|string|in:'.implode(',', User::ASSIGNABLE_ROLES),
             'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing',
         ]);
 
@@ -427,6 +427,10 @@ class TrainingController extends Controller
                 'success' => false,
                 'message' => 'No valid users found for this training.',
             ], 400);
+        }
+
+        if ($request->has('roles') && ! empty($validated['roles'])) {
+            Auth::guard('sanctum')->user()->assertMayAssignRoles($validated['roles']);
         }
 
         $updated = 0;
@@ -724,6 +728,7 @@ class TrainingController extends Controller
         $validated = $request->validate([
             'formation_id' => 'required|integer|exists:formations,id',
             'attendance_day' => 'nullable|date',
+            'live_photo' => AttendanceCheckInService::livePhotoRules(),
         ]);
 
         $authUser = Auth::guard('sanctum')->user();
@@ -733,6 +738,7 @@ class TrainingController extends Controller
             $authUser,
             (int) $validated['formation_id'],
             $attendanceDay,
+            $request->file('live_photo'),
         ));
     }
 

@@ -15,6 +15,7 @@ use App\Models\ProjectRepositoryEvent;
 use App\Models\ProjectUser;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\GitHubWebhookVerifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -266,17 +267,15 @@ class ProjectController extends Controller
         ]);
     }
 
-    public function recordGitHubRepositoryEvent(Request $request, Project $project)
+    public function recordGitHubRepositoryEvent(Request $request, Project $project, GitHubWebhookVerifier $verifier)
     {
-        $secret = config('services.github.webhook_secret');
+        $secret = $verifier->configuredSecret();
+        if ($secret === null) {
+            return response()->json(['error' => 'GitHub webhook is not configured.'], 503);
+        }
 
-        if ($secret) {
-            $signature = $request->header('X-Hub-Signature-256');
-            $expected = 'sha256='.hash_hmac('sha256', $request->getContent(), $secret);
-
-            if (! $signature || ! hash_equals($expected, $signature)) {
-                return response()->json(['error' => 'Invalid signature'], 403);
-            }
+        if (! $verifier->signatureIsValid($request, $secret)) {
+            return response()->json(['error' => 'Invalid signature'], 403);
         }
 
         $eventName = $request->header('X-GitHub-Event', 'repository');

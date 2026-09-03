@@ -196,6 +196,89 @@ class User extends Authenticatable
     }
 
     /**
+     * Catalog of users.role values that may be written through staff endpoints.
+     * Arbitrary strings are not accepted.
+     *
+     * @var list<string>
+     */
+    public const ASSIGNABLE_ROLES = [
+        'student',
+        'coach',
+        'admin',
+        'super_admin',
+        'moderateur',
+        'studio_responsable',
+        'responsable_studio',
+        'coworker',
+        'pro',
+        'recruiter',
+    ];
+
+    /**
+     * Roles that mark an actor as allowed to grant ADMIN_ONLY_GRANT_ROLES.
+     * Do not expand this list — mayAssignPrivilegedRoles() means "actor may
+     * grant elevated roles", not "these roles are blocked from assignment".
+     *
+     * @var list<string>
+     */
+    public const PRIVILEGED_ROLES = [
+        'admin',
+        'super_admin',
+    ];
+
+    /**
+     * Roles that only admin / super_admin may grant. Non-admin staff may only
+     * assign student and coworker.
+     *
+     * @var list<string>
+     */
+    public const ADMIN_ONLY_GRANT_ROLES = [
+        'admin',
+        'super_admin',
+        'coach',
+        'moderateur',
+        'studio_responsable',
+        'responsable_studio',
+        'pro',
+        'recruiter',
+    ];
+
+    /**
+     * Roles non-admin staff may assign when they can edit others.
+     *
+     * @var list<string>
+     */
+    public const STAFF_GRANTABLE_ROLES = [
+        'student',
+        'coworker',
+    ];
+
+    public function mayAssignPrivilegedRoles(): bool
+    {
+        return (bool) array_intersect($this->normalizedRoles(), self::PRIVILEGED_ROLES);
+    }
+
+    /**
+     * Abort 403 if $roles includes any ADMIN_ONLY_GRANT_ROLES and this actor
+     * is not admin or super_admin. Call immediately before persisting users.role.
+     *
+     * @param  list<mixed>  $roles
+     */
+    public function assertMayAssignRoles(array $roles): void
+    {
+        $requested = self::normalizeRolesValue($roles);
+        $blocked = array_values(array_intersect($requested, self::ADMIN_ONLY_GRANT_ROLES));
+
+        if ($blocked === []) {
+            return;
+        }
+
+        if (! $this->mayAssignPrivilegedRoles()) {
+            abort(403, 'You are not allowed to assign this role.');
+        }
+    }
+
+    /**
      * Matches mobile userHasAdminRole: the `admin` role only.
      */
     public function isEventsAdmin(): bool
@@ -603,6 +686,11 @@ class User extends Authenticatable
     public function socialLinks()
     {
         return $this->hasMany(UserSocialLink::class);
+    }
+
+    public function faceEnrollment(): HasOne
+    {
+        return $this->hasOne(FaceEnrollment::class);
     }
 
     /** Organisation this user logs in as (the company account). */

@@ -395,3 +395,101 @@ test('anonymous access to protected reservation api store returns 401', function
         'user_id' => 1,
     ])->assertUnauthorized();
 });
+
+test('coach cannot view another user studio reservation through the mobile api', function () {
+    $owner = h4User([
+        'name' => 'H4 Api Owner',
+        'email' => 'h4.api.owner@example.com',
+        'phone' => '0699887766',
+    ]);
+    $coach = h4Staff('coach');
+    $reservationId = h4StudioReservation($owner);
+
+    $response = $this->actingAs($coach, 'sanctum')
+        ->getJson('/api/mobile/reservations/'.$reservationId)
+        ->assertForbidden();
+
+    $encoded = json_encode($response->json());
+    expect($encoded)->not->toContain($owner->email)
+        ->and($encoded)->not->toContain($owner->phone)
+        ->and($encoded)->not->toContain($owner->name);
+});
+
+test('coach cannot view another user studio reservation through the duplicate api route', function () {
+    $owner = h4User([
+        'name' => 'H4 Duplicate Owner',
+        'email' => 'h4.duplicate.owner@example.com',
+        'phone' => '0612349999',
+    ]);
+    $coach = h4Staff('coach');
+    $reservationId = h4StudioReservation($owner);
+
+    $response = $this->actingAs($coach, 'sanctum')
+        ->getJson('/api/reservations/'.$reservationId)
+        ->assertForbidden();
+
+    $encoded = json_encode($response->json());
+    expect($encoded)->not->toContain($owner->email)
+        ->and($encoded)->not->toContain($owner->phone)
+        ->and($encoded)->not->toContain($owner->name);
+});
+
+test('owner can view own studio reservation through the mobile api', function () {
+    $owner = h4User([
+        'name' => 'H4 Api Self Owner',
+        'email' => 'h4.api.self@example.com',
+        'phone' => '0600112233',
+    ]);
+    $reservationId = h4StudioReservation($owner);
+
+    $this->actingAs($owner, 'sanctum')
+        ->getJson('/api/mobile/reservations/'.$reservationId)
+        ->assertOk()
+        ->assertJsonPath('reservation.id', $reservationId)
+        ->assertJsonPath('reservation.user_email', $owner->email)
+        ->assertJsonPath('reservation.user_phone', $owner->phone);
+});
+
+test('student A cannot view student B studio reservation through the mobile api', function () {
+    $a = h4User(['email' => 'h4.api.student.a@example.com']);
+    $b = h4User([
+        'name' => 'H4 Api Student B',
+        'email' => 'h4.api.student.b@example.com',
+        'phone' => '0677001122',
+    ]);
+    $reservationId = h4StudioReservation($b);
+
+    $response = $this->actingAs($a, 'sanctum')
+        ->getJson('/api/mobile/reservations/'.$reservationId)
+        ->assertForbidden();
+
+    $encoded = json_encode($response->json());
+    expect($encoded)->not->toContain($b->email)
+        ->and($encoded)->not->toContain($b->phone);
+});
+
+test('reservation staff can view another user studio reservation through the mobile api', function (string $role) {
+    $owner = h4User([
+        'email' => 'h4.api.staff.owner.'.$role.'@example.com',
+        'phone' => '0688000000',
+    ]);
+    $staff = h4Staff($role);
+    $reservationId = h4StudioReservation($owner);
+
+    $this->actingAs($staff, 'sanctum')
+        ->getJson('/api/mobile/reservations/'.$reservationId)
+        ->assertOk()
+        ->assertJsonPath('reservation.id', $reservationId)
+        ->assertJsonPath('reservation.user_email', $owner->email);
+})->with(['admin', 'super_admin', 'moderateur', 'studio_responsable', 'pro']);
+
+test('unauthenticated access to reservation detail api returns 401', function () {
+    $owner = h4User();
+    $reservationId = h4StudioReservation($owner);
+
+    $this->getJson('/api/mobile/reservations/'.$reservationId)
+        ->assertUnauthorized();
+
+    $this->getJson('/api/reservations/'.$reservationId)
+        ->assertUnauthorized();
+});

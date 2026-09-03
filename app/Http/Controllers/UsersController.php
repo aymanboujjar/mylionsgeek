@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\EnsureAttendanceStaffRole;
+use App\Models\FaceEnrollment;
 use App\Models\Formation;
 use Inertia\Inertia;
 use App\Http\Controllers\Controller;
@@ -53,6 +55,11 @@ class UsersController extends Controller
 
     public function index()
     {
+        $actor = Auth::user();
+        $actorRoles = is_array($actor?->role) ? $actor->role : array_filter([(string) ($actor?->role ?? '')]);
+        $actorRolesLower = array_map('strtolower', array_map('strval', $actorRoles));
+        $canSeeSensitive = (bool) array_intersect($actorRolesLower, ['admin', 'super_admin']);
+
         $allUsers = User::query()
             ->where('role', '!=', 'admin')
             ->orderByDesc('created_at')
@@ -63,9 +70,40 @@ class UsersController extends Controller
         $allFormation = Formation::with(['coach:id,name'])->orderBy('created_at', 'desc')->get();
 
         return Inertia::render('admin/users/index', [
-            'users' => $allUsers->map(fn (User $user) => array_merge($user->toArray(), [
-                'resume_view_url' => $user->resumeViewUrl(),
-            ])),
+            'users' => $allUsers->map(function (User $user) use ($canSeeSensitive) {
+                $dto = [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'image' => $user->image,
+                    'cover' => $user->cover,
+                    'role' => $user->role,
+                    'status' => $user->status,
+                    'program_status' => $user->program_status,
+                    'gender' => $user->gender,
+                    'formation_id' => $user->formation_id,
+                    'field' => $user->field,
+                    'promo' => $user->promo,
+                    'access_cowork' => $user->access_cowork,
+                    'access_studio' => $user->access_studio,
+                    'access_scan' => $user->access_scan,
+                    'account_state' => $user->account_state,
+                    'created_at' => $user->created_at,
+                    'last_online' => $user->last_online,
+                    'speciality' => $user->speciality,
+                ];
+
+                if ($canSeeSensitive) {
+                    $dto['cin'] = $user->cin;
+                    $dto['phone'] = $user->phone;
+                    $dto['has_handicap'] = $user->has_handicap;
+                    $dto['resume_view_url'] = $user->resumeViewUrl();
+                    $dto['resume_url'] = $user->resumePublicUrl();
+                    $dto['resume'] = $user->resume;
+                }
+
+                return $dto;
+            }),
             'trainings' => $allFormation,
         ]);
     }
@@ -199,6 +237,17 @@ class UsersController extends Controller
             $profileStats
         );
 
+        $canEnrollFace = $viewer instanceof User && EnsureAttendanceStaffRole::allows($viewer);
+        $faceEnrollment = null;
+        if (Schema::hasTable('face_enrollments')) {
+            $enrollment = FaceEnrollment::query()->where('user_id', $user->id)->first();
+            if ($enrollment) {
+                $faceEnrollment = [
+                    'enrolled_at' => $enrollment->enrolled_at?->toIso8601String(),
+                ];
+            }
+        }
+
         return Inertia::render('admin/users/[id]', [
             'user' => $userPayload,
             'roles' => $roles,
@@ -209,6 +258,8 @@ class UsersController extends Controller
             'discipline' => $discipline,
             'absences' => $absences['paginated'],
             'recentAbsences' => $absences['recent'],
+            'canEnrollFace' => $canEnrollFace,
+            'faceEnrollment' => $faceEnrollment,
         ]);
     }
 
@@ -833,38 +884,20 @@ class UsersController extends Controller
     // Documents API
     public function documents(User $user)
     {
-        $toUrl = function ($path) {
-            $p = (string) $path;
-            if ($p === '') {
-                return null;
-            }
-            if (str_starts_with($p, 'http://') || str_starts_with($p, 'https://')) {
-                return $p;
-            }
-            // If already a web path like "/storage/...", return as-is (legacy rows)
-            if (str_starts_with($p, '/storage/')) {
-                return $p;
-            }
-            // Default: map storage path to public URL
-            return Storage::url($p);
-        };
-
         $contracts = Contract::query()
             ->where('user_id', $user->id)
             ->orderByDesc('created_at')
             ->get(['id', 'contract', 'type', 'created_at'])
-            ->map(function ($c) {
+            ->map(function ($c) use ($user) {
                 return [
                     'id' => (int) $c->id,
                     'name' => (string) ($c->type ?: 'Contract'),
-                    // Always attempt to generate a URL; legacy rows may already store '/storage/...'
-                    'url' => (function ($path) {
-                        $p = (string) $path;
-                        if ($p === '') return null;
-                        if (str_starts_with($p, 'http://') || str_starts_with($p, 'https://')) return $p;
-                        if (str_starts_with($p, '/storage/')) return $p;
-                        return Storage::url($p);
-                    })($c->contract),
+                    // Auth-gated view route only — never emit public /storage URLs (H5).
+                    'url' => route('admin.users.documents.view', [
+                        'user' => $user->id,
+                        'kind' => 'contract',
+                        'doc' => $c->id,
+                    ]),
                     'kind' => 'contract',
                     'created_at' => (string) $c->created_at,
                 ];
@@ -874,17 +907,15 @@ class UsersController extends Controller
             ->where('user_id', $user->id)
             ->orderByDesc('created_at')
             ->get(['id', 'mc_document', 'description', 'created_at'])
-            ->map(function ($m) {
+            ->map(function ($m) use ($user) {
                 return [
                     'id' => (int) $m->id,
                     'name' => (string) ($m->description ?: 'Medical certificate'),
-                    'url' => (function ($path) {
-                        $p = (string) $path;
-                        if ($p === '') return null;
-                        if (str_starts_with($p, 'http://') || str_starts_with($p, 'https://')) return $p;
-                        if (str_starts_with($p, '/storage/')) return $p;
-                        return Storage::url($p);
-                    })($m->mc_document),
+                    'url' => route('admin.users.documents.view', [
+                        'user' => $user->id,
+                        'kind' => 'medical',
+                        'doc' => $m->id,
+                    ]),
                     'kind' => 'medical',
                     'created_at' => (string) $m->created_at,
                 ];
@@ -900,12 +931,12 @@ class UsersController extends Controller
     {
         $validated = $request->validate([
             'kind' => 'required|string|in:contract,medical',
-            'file' => 'required|file|max:10240',
+            'file' => 'required|file|mimes:pdf,doc,docx,jpg,jpeg,png,webp|max:10240',
             'name' => 'nullable|string|max:255',
             'type' => 'nullable|string|max:100',
         ]);
 
-        $path = $request->file('file')->store('documents', 'public');
+        $path = $request->file('file')->store('documents', 'documents');
 
         if ($validated['kind'] === 'contract') {
             Contract::create([
@@ -926,10 +957,9 @@ class UsersController extends Controller
         return response()->json(['status' => 'ok']);
     }
 
-    // Stream a stored document via controller to avoid direct /storage access issues
+    // Stream a stored document via controller (private disk + legacy public fallback).
     public function viewDocument(Request $request, User $user, string $kind, int $doc)
     {
-        // Fetch by document id only to handle legacy rows with mismatched user_id types
         if ($kind === 'contract') {
             $row = Contract::query()->whereKey($doc)->firstOrFail();
             $path = (string) $row->contract;
@@ -938,19 +968,21 @@ class UsersController extends Controller
             $path = (string) $row->mc_document;
         }
 
-        // Normalize possible stored paths and resolve to an actual file on public disk
+        if ((int) $row->user_id !== (int) $user->id) {
+            abort(Response::HTTP_NOT_FOUND);
+        }
+
+        if (preg_match('/^https?:\/\//i', $path)) {
+            abort(Response::HTTP_NOT_FOUND);
+        }
+
         if (str_starts_with($path, '/storage/')) {
             $path = ltrim(substr($path, strlen('/storage/')), '/');
-        }
-        if (preg_match('/^https?:\/\//i', $path)) {
-            return redirect()->away($path);
         }
 
         $candidates = [];
         $base = ltrim($path, '/');
-        // as-is
         $candidates[] = $base;
-        // try common directories for legacy rows that only stored filename
         $candidates[] = 'documents/' . basename($base);
         if ($kind === 'contract') {
             $candidates[] = 'contracts/' . basename($base);
@@ -958,24 +990,22 @@ class UsersController extends Controller
             $candidates[] = 'medicals/' . basename($base);
         }
 
-        $resolved = null;
         foreach ($candidates as $candidate) {
-            if (Storage::disk('public')->exists($candidate)) {
-                $resolved = $candidate;
-                break;
+            if (Storage::disk('documents')->exists($candidate)) {
+                return response()->file(Storage::disk('documents')->path($candidate));
             }
         }
 
-        if ($resolved === null) {
-            abort(Response::HTTP_NOT_FOUND);
+        foreach ($candidates as $candidate) {
+            if (Storage::disk('public')->exists($candidate)) {
+                $fullPath = storage_path('app/public/' . ltrim($candidate, '/'));
+                if (is_file($fullPath)) {
+                    return response()->file($fullPath);
+                }
+            }
         }
 
-        $fullPath = storage_path('app/public/' . ltrim($resolved, '/'));
-        if (!is_file($fullPath)) {
-            abort(Response::HTTP_NOT_FOUND);
-        }
-
-        return response()->file($fullPath);
+        abort(Response::HTTP_NOT_FOUND);
     }
 
     /**
@@ -1063,7 +1093,7 @@ class UsersController extends Controller
             'name' => 'nullable|string',
             'email' => 'nullable|email|unique:users,email,' . $user->id,
             'roles' => 'nullable|array',
-            'roles.*' => 'string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
+            'roles.*' => 'string|in:'.implode(',', User::ASSIGNABLE_ROLES),
             'status' => 'nullable|string',
             'formation_id' => 'nullable|integer|exists:formations,id',
             'phone' => 'nullable|string',
@@ -1072,8 +1102,8 @@ class UsersController extends Controller
             'has_handicap' => 'nullable|in:0,1',
             'program_status' => 'nullable|in:'.implode(',', User::PROGRAM_STATUSES),
             'speciality' => 'nullable|string|max:255',
-            'image' => 'nullable|image',
-            'cover' => 'nullable|image', // <-- allow cover image
+            'image' => 'nullable|image|mimes:jpeg,jpg,png,webp,gif',
+            'cover' => 'nullable|image|mimes:jpeg,jpg,png,webp,gif', // <-- allow cover image
             'resume' => 'nullable|file|mimes:pdf,doc,docx|max:10240',
             'access_cowork' => 'nullable|integer|in:0,1',
             'access_studio' => 'nullable|integer|in:0,1',
@@ -1102,7 +1132,9 @@ class UsersController extends Controller
             }
         }
 
-            if ($request->has('formation_id')) {
+        // Enrollment is staff-managed. A student self-update must never copy
+        // another formation's category onto `field` from a forged formation_id.
+        if ($canEditOthers && $request->has('formation_id')) {
             $formation = Formation::query()->whereKey($request->formation_id)->first();
             // dd($formation->category);
             $user->field = $formation->category;
@@ -1136,20 +1168,26 @@ class UsersController extends Controller
         // must never be able to escalate their own role. Without this gate the endpoint
         // is a broken-access-control / mass-assignment privilege escalation (a student
         // can POST roles[]=admin to /students/update/{their-own-id} and become admin).
+        // Non-admin staff also cannot change their own role (self-escalation to
+        // coach/moderateur/etc. via canEditOthers).
         unset($validated['roles'], $validated['role']);
+        $isSelfUpdate = (int) $actor->id === (int) $user->id;
         if ($request->has('roles') && $canEditOthers) {
+            if ($isSelfUpdate && ! $actor->mayAssignPrivilegedRoles()) {
+                abort(403, 'You are not allowed to change your own role.');
+            }
             $roles = $request->input('roles');
             if (is_array($roles)) {
+                $actor->assertMayAssignRoles($roles);
                 $validated['role'] = array_values(array_map(function ($r) {
                     return strtolower((string) $r);
                 }, $roles));
             }
         }
-
-        $isSelfUpdate = (int) $actor->id === (int) $user->id;
         $currentStatusNormalized = strtolower(trim((string) $user->status));
 
         if ($isSelfUpdate && ! $canEditOthers) {
+            unset($validated['formation_id']);
             if ($currentStatusNormalized === 'studying') {
                 unset($validated['status']);
             } elseif (isset($validated['status'])) {
@@ -1170,7 +1208,7 @@ class UsersController extends Controller
         $previousProgramStatus = $user->program_status;
 
         $privileged = [];
-        foreach (['role', 'access_cowork', 'access_studio', 'access_scan'] as $field) {
+        foreach (['role', 'access_cowork', 'access_studio', 'access_scan', 'formation_id'] as $field) {
             if (array_key_exists($field, $validated)) {
                 $privileged[$field] = $validated[$field];
                 unset($validated[$field]);
@@ -1178,6 +1216,10 @@ class UsersController extends Controller
         }
 
         $user->update($validated);
+
+        if ($canEditOthers && $privileged !== []) {
+            $user->forceFill($privileged)->save();
+        }
 
         // When staff manually marks a user as a laureate, reset the LinkedIn modal gate
         // fields so the share prompt appears on their next login, and ensure a share
@@ -1220,14 +1262,14 @@ class UsersController extends Controller
             'email' => 'required|string|email|unique:users,email',
             'password' => 'nullable|string|confirmed', // expects password_confirmation
             'phone' => 'nullable|string',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg', // Or 'nullable|string' if not a file
+            'image' => 'nullable|image|mimes:jpeg,jpg,png,webp,gif', // Or 'nullable|string' if not a file
             'status' => 'nullable|string', // adjust allowed values as needed
             'cin' => 'nullable|string', // National ID, if applicable
             'formation_id' => 'required|exists:formations,id', // Assumes foreign key to formations table
             'access_studio' => 'required|integer|in:0,1', // Assumes foreign key to formations table
             'access_cowork' => 'required|integer|in:0,1', // Assumes foreign key to formations table
             'roles' => 'required|array|min:1',
-            'roles.*' => 'required|string',
+            'roles.*' => 'required|string|in:'.implode(',', User::ASSIGNABLE_ROLES),
             'entreprise' => 'nullable|string', // Assumes foreign key to formations table
         ]);
         $existing = User::query()->where('email', $validated['email'])->first();
@@ -1251,6 +1293,7 @@ class UsersController extends Controller
         $plainPassword = Str::random(12);
         $lastUser = User::orderBy('id', 'desc')->first();
         // dd($lastUser->id);
+        $request->user()->assertMayAssignRoles($validated['roles']);
         $user = new User();
         $user->forceFill([
             'id' => $lastUser->id + 1,

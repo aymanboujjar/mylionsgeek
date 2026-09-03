@@ -1338,7 +1338,7 @@ export default function Show({ training, usersNull, courses = [] }) {
                                 <div className="space-y-4 border-t border-alpha/20 pt-4">
                                     <div>
                                         <label className="mb-2 block text-sm font-medium">Update Roles (optional)</label>
-                                        <RolesMultiSelect roles={bulkRoles} onChange={setBulkRoles} />
+                                        <RolesMultiSelect roles={bulkRoles} onChange={setBulkRoles} canGrantStaffRoles={isAdminRole} />
                                         <p className="mt-1 text-xs text-dark/60 dark:text-light/60">Leave empty to keep existing roles</p>
                                     </div>
 

@@ -30,5 +30,8 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="SCHOOL_ALLOWED_IPS" value="203.0.113.1"/>
+        <env name="AWS_ACCESS_KEY_ID" value="" force="true"/>
+        <env name="AWS_SECRET_ACCESS_KEY" value="" force="true"/>
+        <env name="FACE_VERIFICATION_MIN_SIMILARITY" value="90"/>
     </php>
 </phpunit>

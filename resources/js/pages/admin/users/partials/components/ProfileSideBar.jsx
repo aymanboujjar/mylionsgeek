@@ -1,6 +1,7 @@
 import { IdCard, Mail, Monitor, Phone } from 'lucide-react';
+import FaceEnrollmentCard from './FaceEnrollmentCard';
 
-const ProfileSidebar = ({ user, assignedComputer }) => {
+const ProfileSidebar = ({ user, assignedComputer, canEnrollFace = false, faceEnrollment = null }) => {
     return (
         <div className="space-y-6">
             {/* About Card */}
@@ -35,7 +36,6 @@ const ProfileSidebar = ({ user, assignedComputer }) => {
                 </div>
             </div>
 
-            {/* Assigned Computer */}
             {assignedComputer && (
                 <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-950/40">
                     <div className="border-b border-yellow-400 p-6 dark:border-yellow-500">
@@ -68,6 +68,8 @@ const ProfileSidebar = ({ user, assignedComputer }) => {
                     </div>
                 </div>
             )}
+
+            <FaceEnrollmentCard user={user} canEnrollFace={canEnrollFace} faceEnrollment={faceEnrollment} />
         </div>
     );
 };

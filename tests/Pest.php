@@ -41,7 +41,40 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+function bindVerifiedFaceVerifier(): void
 {
-    // ..
+    app()->instance(
+        App\Services\FaceVerification\FaceVerificationService::class,
+        new Tests\Support\VerifiedFaceVerificationService
+    );
+}
+
+function m8LivePhoto(string $name = 'live_photo.jpg'): Illuminate\Http\UploadedFile
+{
+    return Illuminate\Http\UploadedFile::fake()->image($name);
+}
+
+function bindRekognitionFaceVerifier(?Tests\Support\FakeRekognitionClient $client = null): Tests\Support\FakeRekognitionClient
+{
+    $client ??= new Tests\Support\FakeRekognitionClient;
+
+    config([
+        'services.rekognition.key' => 'testing-key',
+        'services.rekognition.secret' => 'testing-secret',
+        'services.rekognition.region' => 'us-east-1',
+        'face.min_similarity' => 90,
+        'face.enrollment_disk' => 'face_enrollments',
+    ]);
+
+    Illuminate\Support\Facades\Storage::fake('face_enrollments');
+    Illuminate\Support\Facades\Storage::fake('public');
+
+    app()->instance(App\Services\FaceVerification\RekognitionClient::class, $client);
+    app()->forgetInstance(App\Services\FaceVerification\FaceVerificationService::class);
+    app()->instance(
+        App\Services\FaceVerification\FaceVerificationService::class,
+        app()->make(App\Services\FaceVerification\RekognitionFaceVerificationService::class)
+    );
+
+    return $client;
 }

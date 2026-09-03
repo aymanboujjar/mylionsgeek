@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -26,6 +27,7 @@ class PlacesController extends Controller
         if (Schema::hasTable('studios')) {
             $data['studios'] = DB::table('studios')
                 ->select('id', 'name', 'image')
+                ->where('state', 1)
                 ->get()
                 ->map(function ($row) {
                     $img = $row->image
@@ -44,6 +46,7 @@ class PlacesController extends Controller
         if (Schema::hasTable('coworks')) {
             $data['coworks'] = DB::table('coworks')
                 ->select('id', 'table as name', 'image')
+                ->where('state', 1)
                 ->get()
                 ->map(function ($row) {
                     $img = $row->image
@@ -62,6 +65,7 @@ class PlacesController extends Controller
         if (Schema::hasTable('meeting_rooms')) {
             $data['meeting_rooms'] = DB::table('meeting_rooms')
                 ->select('id', 'name', 'image')
+                ->where('state', 1)
                 ->get()
                 ->map(function ($row) {
                     $img = $row->image
@@ -562,10 +566,24 @@ class PlacesController extends Controller
             return [];
         }
 
+        $viewer = Auth::user();
+        $viewerRoles = is_array($viewer?->role) ? $viewer->role : array_filter([(string) ($viewer?->role ?? '')]);
+        $viewerIsAdmin = (bool) array_intersect(
+            array_map('strtolower', array_map('strval', $viewerRoles)),
+            ['admin', 'super_admin']
+        );
+
         return DB::table('users')
-            ->select('id', 'name', 'email', 'image', 'last_online', 'role')
+            ->select('id', 'name', 'image', 'role')
             ->orderBy('name')
             ->get()
+            ->filter(function ($user) use ($viewerIsAdmin) {
+                if ($viewerIsAdmin) {
+                    return true;
+                }
+
+                return ! $this->teamMemberHasAdminRole($user->role ?? null);
+            })
             ->map(function ($user) {
                 $image = $user->image ?? null;
                 $basePath = 'storage/img/profile/';
@@ -585,14 +603,35 @@ class PlacesController extends Controller
                 return [
                     'id' => $user->id,
                     'name' => $user->name,
-                    'email' => $user->email,
                     'image' => $imageUrl,
-                    'last_online' => $user->last_online,
-                    'role' => $user->role,
                 ];
             })
             ->values()
             ->toArray();
+    }
+
+    private function teamMemberHasAdminRole(mixed $role): bool
+    {
+        if ($role === null || $role === '') {
+            return false;
+        }
+
+        if (is_string($role)) {
+            $decoded = json_decode($role, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $role = $decoded;
+            } else {
+                $role = [$role];
+            }
+        }
+
+        if (! is_array($role)) {
+            $role = [(string) $role];
+        }
+
+        $lower = array_map('strtolower', array_map('strval', $role));
+
+        return (bool) array_intersect($lower, ['admin', 'super_admin']);
     }
 
     private function getAllStudioEvents(Collection $studios): array

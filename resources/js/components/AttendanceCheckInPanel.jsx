@@ -6,14 +6,48 @@ import {
 } from '@/lib/attendance-check-in-ui';
 import { shouldShowReminderBanner, slotLabel } from '@/lib/attendance-slots';
 import { CheckCircle2, Clock, Coffee, Loader2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 function csrfToken() {
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 }
 
+function stopStream(stream) {
+    stream?.getTracks()?.forEach((track) => track.stop());
+}
+
+async function blobFromVideo(video) {
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) {
+        throw new Error('Could not capture a photo from the camera.');
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+        throw new Error('Could not capture a photo from the camera.');
+    }
+    context.drawImage(video, 0, 0, width, height);
+
+    const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob(
+            (result) => (result ? resolve(result) : reject(new Error('Could not capture a photo from the camera.'))),
+            'image/jpeg',
+            0.92,
+        );
+    });
+
+    return new File([blob], 'live_photo.jpg', { type: 'image/jpeg' });
+}
+
 /**
  * Interactive check-in UI shared by the full attendance page and the home banner modal.
+ *
+ * Camera capture is for a live still only. The server performs face matching.
+ * This UI does not perform liveness detection.
  *
  * @param {{
  *   formation: { id: number, name?: string } | null,
@@ -29,17 +63,31 @@ export default function AttendanceCheckInPanel({
     onCheckInSuccess,
 }) {
     const attendanceDay = attendanceDayProp ?? initialSlotStatus?.attendance_day ?? null;
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
 
     const [slotStatus, setSlotStatus] = useState(initialSlotStatus);
     const [row, setRow] = useState(initialSlotStatus?.row ?? null);
     const [submitting, setSubmitting] = useState(false);
+    const [cameraOpen, setCameraOpen] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
+
+    const closeCamera = useCallback(() => {
+        stopStream(streamRef.current);
+        streamRef.current = null;
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
+        }
+        setCameraOpen(false);
+    }, []);
 
     useEffect(() => {
         setSlotStatus(initialSlotStatus);
         setRow(initialSlotStatus?.row ?? null);
     }, [initialSlotStatus]);
+
+    useEffect(() => () => closeCamera(), [closeCamera]);
 
     const refreshSlotStatus = useCallback(async () => {
         if (!formation?.id) {
@@ -84,8 +132,39 @@ export default function AttendanceCheckInPanel({
     const reminderVisible = slotStatus ? shouldShowReminderBanner(slotStatus) : false;
     const presentWindow = slotStatus?.present_minutes ?? 15;
 
-    const handleCheckIn = async () => {
+    const openCamera = async () => {
         if (!formation?.id || disabled) {
+            return;
+        }
+
+        setError(null);
+        setSuccess(null);
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setError('Camera is not available in this browser.');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'user' } },
+                audio: false,
+            });
+            streamRef.current = stream;
+            setCameraOpen(true);
+            requestAnimationFrame(() => {
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                }
+            });
+        } catch {
+            closeCamera();
+            setError('Camera permission is required to check in.');
+        }
+    };
+
+    const handleCaptureAndCheckIn = async () => {
+        if (!formation?.id || submitting) {
             return;
         }
 
@@ -94,17 +173,29 @@ export default function AttendanceCheckInPanel({
         setSuccess(null);
 
         try {
+            const video = videoRef.current;
+            if (!video) {
+                setError('Camera is not available in this browser.');
+                return;
+            }
+
+            const livePhoto = await blobFromVideo(video);
+            closeCamera();
+
+            const formData = new FormData();
+            formData.append('formation_id', String(formation.id));
+            if (attendanceDay) {
+                formData.append('attendance_day', attendanceDay);
+            }
+            formData.append('live_photo', livePhoto);
+
             const response = await fetch('/students/attendance/check-in', {
                 method: 'POST',
                 headers: {
                     Accept: 'application/json',
-                    'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': csrfToken(),
                 },
-                body: JSON.stringify({
-                    formation_id: formation.id,
-                    attendance_day: attendanceDay,
-                }),
+                body: formData,
             });
 
             const data = await response.json().catch(() => ({}));
@@ -118,8 +209,8 @@ export default function AttendanceCheckInPanel({
             setRow(data.row);
             await refreshSlotStatus();
             onCheckInSuccess?.();
-        } catch {
-            setError('Network error. Please try again.');
+        } catch (captureError) {
+            setError(captureError instanceof Error ? captureError.message : 'Unable to check in right now.');
         } finally {
             setSubmitting(false);
         }
@@ -160,16 +251,35 @@ export default function AttendanceCheckInPanel({
                 </div>
             )}
 
-            <Button type="button" className="h-12 w-full text-base" disabled={disabled} onClick={handleCheckIn}>
-                {submitting ? (
-                    <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Checking in…
-                    </>
-                ) : (
-                    buttonLabel
-                )}
-            </Button>
+            {cameraOpen && (
+                <div className="space-y-3 rounded-lg border border-border p-4">
+                    <video ref={videoRef} autoPlay playsInline muted className="aspect-[3/4] w-full rounded-md bg-black object-cover" />
+                    <p className="text-center text-xs text-muted-foreground">
+                        Front camera still only. Matching happens on the server; this is not liveness detection.
+                    </p>
+                    <div className="flex gap-2">
+                        <Button type="button" className="h-11 flex-1" disabled={submitting} onClick={handleCaptureAndCheckIn}>
+                            {submitting ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Checking in…
+                                </>
+                            ) : (
+                                'Capture and check in'
+                            )}
+                        </Button>
+                        <Button type="button" variant="outline" className="h-11" disabled={submitting} onClick={closeCamera}>
+                            Cancel
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {!cameraOpen && (
+                <Button type="button" className="h-12 w-full text-base" disabled={disabled} onClick={openCamera}>
+                    {buttonLabel}
+                </Button>
+            )}
 
             {helperText && slotStatus.phase !== 'gap' && (
                 <p className="text-center text-sm text-muted-foreground">{helperText}</p>

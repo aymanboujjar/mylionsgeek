@@ -3,8 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 
 const formatRoleLabel = (role) => (role === 'studio_responsable' ? 'Responsable Studio' : role);
 
-const RolesMultiSelect = ({ roles, onChange }) => {
-    const availableRoles = ['admin', 'studio_responsable', 'student', 'coworker', 'coach', 'pro', 'moderateur', 'recruiter'];
+const ADMIN_GRANTABLE_ROLES = ['admin', 'studio_responsable', 'student', 'coworker', 'coach', 'pro', 'moderateur', 'recruiter'];
+const STAFF_GRANTABLE_ROLES = ['student', 'coworker'];
+
+const RolesMultiSelect = ({ roles, onChange, canGrantStaffRoles = false }) => {
+    const availableRoles = canGrantStaffRoles ? ADMIN_GRANTABLE_ROLES : STAFF_GRANTABLE_ROLES;
     const current = (roles || []).map((r) => String(r).toLowerCase());
     const options = availableRoles.filter((r) => !current.includes(r));
     const containerRef = useRef(null);

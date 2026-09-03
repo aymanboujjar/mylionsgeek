@@ -15,7 +15,9 @@ use Inertia\Inertia;
 use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use App\Services\CoworkReservationConflictService;
 use App\Services\ExportService;
+use App\Services\MeetingRoomReservationConflictService;
 use App\Mail\ReservationApprovedMail;
 use App\Mail\ReservationCanceledMail;
 use App\Mail\ReservationCreatedAdminMail;
@@ -1310,14 +1312,14 @@ class ReservationsController extends Controller
         ]);
     }
 
-    public function storeReservationCowork(Request $request)
+    public function storeReservationCowork(Request $request, CoworkReservationConflictService $coworkReservations)
     {
-        $request->validate([
+        $validated = $request->validate([
             'table' => 'required|integer',
             'seats' => 'required|integer|min:1',
             'day' => 'required|date',
-            'start' => 'required',
-            'end' => 'required',
+            'start' => CoworkReservationConflictService::timeRules(),
+            'end' => CoworkReservationConflictService::timeRules(),
         ]);
 
         $currentUser = auth()->user();
@@ -1331,18 +1333,14 @@ class ReservationsController extends Controller
             return back()->with('error', 'User not found');
         }
 
-        // Create cowork reservation using Eloquent Model (cleaner)
-        $reservation = ReservationCowork::create([
-            'table' => $request->table,
-            'seats' => $request->seats,
-            'day' => $request->day,
-            'start' => $request->start,
-            'end' => $request->end,
-            'user_id' => Auth::id(),
-            'approved' => 1,
-            'canceled' => 0,
-            'passed' => 0,
-        ]);
+        $reservation = $coworkReservations->createApproved(
+            (int) Auth::id(),
+            (int) $validated['table'],
+            (int) $validated['seats'],
+            $validated['day'],
+            $validated['start'],
+            $validated['end'],
+        );
 
         // Send approval email for auto-approved cowork reservation
         try {
@@ -2882,17 +2880,14 @@ class ReservationsController extends Controller
         ]);
     }
 
-    public function storeReservationMeetingRoom(Request $request)
+    public function storeReservationMeetingRoom(Request $request, MeetingRoomReservationConflictService $meetingRoomReservations)
     {
-        $request->validate([
+        $validated = $request->validate([
             'meeting_room_id' => 'required|exists:meeting_rooms,id',
             'day' => 'required|date',
-            'start' => 'required',
-            'end' => 'required',
+            'start' => MeetingRoomReservationConflictService::timeRules(),
+            'end' => MeetingRoomReservationConflictService::timeRules(),
         ]);
-
-        $lastId = (int) (DB::table('reservation_meeting_rooms')->max('id') ?? 0);
-        $reservationId = $lastId + 1;
 
         // Get user data for email
         $user = DB::table('users')->where('id', Auth::id())->first();
@@ -2901,31 +2896,24 @@ class ReservationsController extends Controller
         }
 
         // Get meeting room name
-        $meetingRoom = DB::table('meeting_rooms')->where('id', $request->meeting_room_id)->first();
+        $meetingRoom = DB::table('meeting_rooms')->where('id', $validated['meeting_room_id'])->first();
 
-        // Create meeting room reservation as auto-approved
-        DB::table('reservation_meeting_rooms')->insert([
-            'id' => $reservationId,
-            'meeting_room_id' => $request->meeting_room_id,
-            'user_id' => Auth::id(),
-            'day' => $request->day,
-            'start' => $request->start,
-            'end' => $request->end,
-            'passed' => 0,
-            'approved' => 1,
-            'canceled' => 0,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $reservation = $meetingRoomReservations->createApproved(
+            (int) Auth::id(),
+            (int) $validated['meeting_room_id'],
+            $validated['day'],
+            $validated['start'],
+            $validated['end'],
+        );
 
         // Send approval email for auto-approved meeting room reservation
         try {
             $reservationData = (object) [
-                'id' => $reservationId,
+                'id' => $reservation->id,
                 'title' => "Meeting Room - {$meetingRoom->name}",
-                'date' => $request->day,
-                'start' => $request->start,
-                'end' => $request->end,
+                'date' => $validated['day'],
+                'start' => $validated['start'],
+                'end' => $validated['end'],
                 'description' => 'Meeting room reservation',
                 'type' => 'meeting_room'
             ];
@@ -3149,10 +3137,24 @@ class ReservationsController extends Controller
             return [];
         }
 
+        $viewer = Auth::user();
+        $viewerRoles = is_array($viewer?->role) ? $viewer->role : array_filter([(string) ($viewer?->role ?? '')]);
+        $viewerIsAdmin = (bool) array_intersect(
+            array_map('strtolower', array_map('strval', $viewerRoles)),
+            ['admin', 'super_admin']
+        );
+
         return DB::table('users')
-            ->select('id', 'name', 'email', 'image', 'last_online')
+            ->select('id', 'name', 'image', 'role')
             ->orderBy('name')
             ->get()
+            ->filter(function ($user) use ($viewerIsAdmin) {
+                if ($viewerIsAdmin) {
+                    return true;
+                }
+
+                return ! $this->teamMemberHasAdminRole($user->role ?? null);
+            })
             ->map(function ($user) {
                 $image = $user->image ?? null;
                 if ($image) {
@@ -3168,13 +3170,35 @@ class ReservationsController extends Controller
                 return [
                     'id' => $user->id,
                     'name' => $user->name,
-                    'email' => $user->email,
                     'image' => $imageUrl,
-                    'last_online' => $user->last_online,
                 ];
             })
             ->values()
             ->toArray();
+    }
+
+    private function teamMemberHasAdminRole(mixed $role): bool
+    {
+        if ($role === null || $role === '') {
+            return false;
+        }
+
+        if (is_string($role)) {
+            $decoded = json_decode($role, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $role = $decoded;
+            } else {
+                $role = [$role];
+            }
+        }
+
+        if (! is_array($role)) {
+            $role = [(string) $role];
+        }
+
+        $lower = array_map('strtolower', array_map('strval', $role));
+
+        return (bool) array_intersect($lower, ['admin', 'super_admin']);
     }
 
     /**

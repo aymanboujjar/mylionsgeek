@@ -11,6 +11,7 @@
     "require": {
         "php": "^8.2",
         "ably/laravel-broadcaster": "^1.0",
+        "aws/aws-sdk-php": "^3.356",
         "barryvdh/laravel-dompdf": "*",
         "doctrine/dbal": "^4.3",
         "inertiajs/inertia-laravel": "^2.0",

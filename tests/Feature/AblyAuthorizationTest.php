@@ -7,6 +7,7 @@ use App\Models\Project;
 use App\Models\User;
 use App\Services\AblyCapabilityService;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -282,6 +283,7 @@ test('game token capabilities are scoped to joined rooms', function () {
             'players' => [
                 ['name' => 'H3 Gamer A', 'symbol' => 'X'],
             ],
+            'participant_user_ids' => [$userA->id],
         ],
         'last_activity' => now(),
     ]);
@@ -292,6 +294,7 @@ test('game token capabilities are scoped to joined rooms', function () {
             'players' => [
                 ['name' => 'H3 Gamer B', 'symbol' => 'X'],
             ],
+            'participant_user_ids' => [$userB->id],
         ],
         'last_activity' => now(),
     ]);
@@ -329,6 +332,60 @@ test('posting game state records the authenticated user as a participant without
     expect($capsA)->toHaveKey('game:h3-room-join')
         ->and($capsB)->not->toHaveKey('game:h3-room-join');
     h3AssertNoPrivateWildcards($capsA);
+});
+
+test('same display name does not grant another user ably access to a room', function () {
+    $userA = h3User(['name' => 'Shared Gamer Name']);
+    $userB = h3User(['name' => 'Shared Gamer Name']);
+
+    GameSession::query()->create([
+        'room_id' => 'n10-name-collision',
+        'game_type' => 'tictactoe',
+        'game_state' => [
+            'players' => [
+                ['name' => 'Shared Gamer Name', 'symbol' => 'X'],
+            ],
+            'participant_user_ids' => [$userA->id],
+        ],
+        'last_activity' => now(),
+    ]);
+
+    $capsA = h3Caps()->gameCapabilities($userA);
+    $capsB = h3Caps()->gameCapabilities($userB);
+
+    expect($capsA)->toHaveKey('game:n10-name-collision')
+        ->and($capsB)->not->toHaveKey('game:n10-name-collision');
+
+    $this->actingAs($userB)
+        ->getJson('/api/games/ably-token');
+
+    expect(h3Caps()->gameCapabilities($userB->fresh()))->not->toHaveKey('game:n10-name-collision');
+    h3AssertNoPrivateWildcards($capsB);
+});
+
+test('renaming to another players display name does not grant ably game capability', function () {
+    $userA = h3User(['name' => 'N10 Ably Host']);
+    $userB = h3User(['name' => 'N10 Ably Guest']);
+
+    $this->actingAs($userA)
+        ->postJson('/api/games/state/n10-ably-rename', [
+            'game_type' => 'tictactoe',
+            'game_state' => [
+                'players' => [['name' => 'N10 Ably Host', 'symbol' => 'X']],
+            ],
+        ])
+        ->assertOk();
+
+    Auth::forgetGuards();
+    $this->actingAs($userB, 'sanctum')
+        ->postJson('/api/mobile/profile/update', [
+            'name' => 'N10 Ably Host',
+        ])
+        ->assertOk();
+
+    expect($userB->fresh()->name)->toBe('N10 Ably Host')
+        ->and(h3Caps()->gameCapabilities($userA))->toHaveKey('game:n10-ably-rename')
+        ->and(h3Caps()->gameCapabilities($userB->fresh()))->not->toHaveKey('game:n10-ably-rename');
 });
 
 test('notification ably authorization remains scoped to the authenticated user', function () {

@@ -7,17 +7,24 @@ use App\Models\Equipment;
 use App\Models\Reservation;
 use App\Models\ReservationCowork;
 use App\Models\User;
+use App\Services\CoworkReservationConflictService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 use Inertia\Response;
 
 class ReservationController extends Controller
 {
     private const ACCESS_BYPASS_ROLES = ['admin', 'super_admin', 'moderateur', 'coach', 'studio_responsable'];
+
+    /**
+     * Who may view another user's studio reservation details.
+     * Matches web ReservationsController::RESERVATION_STAFF_ROLES.
+     * Do not reuse ACCESS_BYPASS_ROLES (that list is for booking/access flags and includes coach).
+     */
+    private const RESERVATION_STAFF_ROLES = ['admin', 'super_admin', 'moderateur', 'studio_responsable', 'pro'];
 
 
     public function users()
@@ -538,7 +545,7 @@ class ReservationController extends Controller
         return response()->json($users);
     }
 
-    public function storeReservationCoworkMobile(Request $request)
+    public function storeReservationCoworkMobile(Request $request, CoworkReservationConflictService $coworkReservations)
     {
         $checkResult = $this->checkRequestedUser();
         if ($checkResult) {
@@ -557,66 +564,18 @@ class ReservationController extends Controller
             'table' => 'required|integer',
             'seats' => 'required|integer|min:1',
             'day' => 'required|date',
-            'start' => 'required',
-            'end' => 'required',
+            'start' => CoworkReservationConflictService::timeRules(),
+            'end' => CoworkReservationConflictService::timeRules(),
         ]);
 
-        $table = (int) $request->table;
-        $day = $request->day;
-        $start = $request->start;
-        $end = $request->end;
-        $lockName = 'cowork-reserve-'.$table.'-'.$day;
-        $driver = DB::getDriverName();
-
-        try {
-            // Serialize first-insert races on MySQL/MariaDB when no reservation rows exist yet.
-            if (in_array($driver, ['mysql', 'mariadb'], true)) {
-                DB::select('SELECT GET_LOCK(?, 10) as acquired', [$lockName]);
-            }
-
-            $reservation = DB::transaction(function () use ($request, $user, $table, $day, $start, $end) {
-                // Parent-row lock: does not 404 if the cowork is missing (no extra exists validation).
-                if (Schema::hasTable('coworks')) {
-                    DB::table('coworks')->where('id', $table)->lockForUpdate()->first();
-                }
-
-                $sameTableDay = ReservationCowork::query()
-                    ->where('table', $table)
-                    ->where('day', $day)
-                    ->lockForUpdate()
-                    ->get();
-
-                $hasOverlap = $sameTableDay->contains(function ($row) use ($start, $end) {
-                    if ($row->canceled) {
-                        return false;
-                    }
-
-                    return $row->start < $end && $row->end > $start;
-                });
-
-                if ($hasOverlap) {
-                    throw ValidationException::withMessages([
-                        'start' => ['This table is already reserved for the selected time.'],
-                    ]);
-                }
-
-                return ReservationCowork::create([
-                    'table' => $table,
-                    'seats' => $request->seats,
-                    'day' => $day,
-                    'start' => $start,
-                    'end' => $end,
-                    'user_id' => $user->id,
-                    'approved' => 1,
-                    'canceled' => 0,
-                    'passed' => 0,
-                ]);
-            });
-        } finally {
-            if (in_array($driver, ['mysql', 'mariadb'], true)) {
-                DB::select('SELECT RELEASE_LOCK(?)', [$lockName]);
-            }
-        }
+        $reservation = $coworkReservations->createApproved(
+            (int) $user->id,
+            (int) $request->table,
+            (int) $request->seats,
+            (string) $request->day,
+            (string) $request->start,
+            (string) $request->end,
+        );
 
         return response()->json([
             'status' => 'success',
@@ -675,7 +634,8 @@ class ReservationController extends Controller
     }
 
     /**
-     * Studio reservation detail: owner, or privileged staff (see ACCESS_BYPASS_ROLES).
+     * Studio reservation detail: owner, or reservation staff (see RESERVATION_STAFF_ROLES).
+     * Coach is not reservation staff and must not see another user's booking or PII.
      */
     private function reservationVisibleToUser(?User $authUser, int $reservationOwnerId): bool
     {
@@ -683,7 +643,7 @@ class ReservationController extends Controller
             return false;
         }
         $roles = $this->normalizeRolesList(data_get($authUser, 'role'));
-        if (!empty(array_intersect($roles, self::ACCESS_BYPASS_ROLES))) {
+        if (!empty(array_intersect($roles, self::RESERVATION_STAFF_ROLES))) {
             return true;
         }
 

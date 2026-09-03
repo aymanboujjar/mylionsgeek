@@ -68,7 +68,7 @@ class AblyCapabilityService
     }
 
     /**
-     * Game rooms the user has joined (player list or recorded participant id).
+     * Game rooms the user has joined (server-recorded participant_user_ids).
      *
      * @return array<string, list<string>>
      */
@@ -152,42 +152,27 @@ class AblyCapabilityService
             ->all();
     }
 
-    private function userIsAuthorizedForGame(User $user, mixed $gameState): bool
+    /**
+     * Whether this user is already a member of the stored game state.
+     * Used for Ably capabilities and HTTP game-state authorization.
+     * Membership is only Auth::id() recorded in participant_user_ids.
+     * Display names and client-supplied player objects are not identities.
+     */
+    public function userIsAuthorizedForGame(User $user, mixed $gameState): bool
     {
         if (! is_array($gameState)) {
             return false;
         }
 
         $participantIds = $gameState['participant_user_ids'] ?? [];
-        if (is_array($participantIds)) {
-            foreach ($participantIds as $participantId) {
-                if ((int) $participantId === (int) $user->id) {
-                    return true;
-                }
-            }
-        }
-
-        $players = $gameState['players'] ?? [];
-        if (! is_array($players)) {
+        if (! is_array($participantIds)) {
             return false;
         }
 
         $userId = (int) $user->id;
-        $userName = strtolower(trim((string) $user->name));
 
-        foreach ($players as $player) {
-            if (! is_array($player)) {
-                continue;
-            }
-
-            foreach (['id', 'user_id', 'userId'] as $key) {
-                if (isset($player[$key]) && (int) $player[$key] === $userId) {
-                    return true;
-                }
-            }
-
-            $playerName = strtolower(trim((string) ($player['name'] ?? '')));
-            if ($userName !== '' && $playerName === $userName) {
+        foreach ($participantIds as $participantId) {
+            if ((int) $participantId === $userId) {
                 return true;
             }
         }

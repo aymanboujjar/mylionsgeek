@@ -145,23 +145,39 @@ function getWebAttendancePage(TestCase $test, User $actor, string $remoteAddr): 
         ->get('/students/attendance');
 }
 
-function postWebCheckIn(TestCase $test, User $actor, string $remoteAddr): TestResponse
+function postWebCheckIn(TestCase $test, User $actor, string $remoteAddr, array $overrides = [], bool $withLivePhoto = true): TestResponse
 {
+    $payload = array_merge([
+        'formation_id' => $test->formation->id,
+        'attendance_day' => Carbon::now()->toDateString(),
+    ], $overrides);
+
+    if ($withLivePhoto && ! array_key_exists('live_photo', $payload)) {
+        $payload['live_photo'] = m8LivePhoto();
+    }
+
     return $test->actingAs($actor)
         ->withServerVariables(['REMOTE_ADDR' => $remoteAddr])
-        ->postJson('/students/attendance/check-in', [
-            'formation_id' => $test->formation->id,
-            'attendance_day' => Carbon::now()->toDateString(),
+        ->post('/students/attendance/check-in', $payload, [
+            'Accept' => 'application/json',
         ]);
 }
 
-function postMobileCheckIn(TestCase $test, User $actor, string $remoteAddr): TestResponse
+function postMobileCheckIn(TestCase $test, User $actor, string $remoteAddr, array $overrides = [], bool $withLivePhoto = true): TestResponse
 {
+    $payload = array_merge([
+        'formation_id' => $test->formation->id,
+        'attendance_day' => Carbon::now()->toDateString(),
+    ], $overrides);
+
+    if ($withLivePhoto && ! array_key_exists('live_photo', $payload)) {
+        $payload['live_photo'] = m8LivePhoto();
+    }
+
     return $test->actingAs($actor, 'sanctum')
         ->withServerVariables(['REMOTE_ADDR' => $remoteAddr])
-        ->postJson('/api/mobile/attendance/check-in', [
-            'formation_id' => $test->formation->id,
-            'attendance_day' => Carbon::now()->toDateString(),
+        ->post('/api/mobile/attendance/check-in', $payload, [
+            'Accept' => 'application/json',
         ]);
 }
 
@@ -192,6 +208,7 @@ test('student on allowed IP can load web attendance page', function () {
 
 test('staff bypasses network restriction on web check-in', function () {
     freezeWebTime('09:42:00');
+    bindVerifiedFaceVerifier();
     $studentCoach = createWebStudent(['role' => ['student', 'coach']]);
 
     postWebCheckIn($this, $studentCoach, '198.51.100.99')->assertOk();
@@ -241,6 +258,7 @@ test('web network-check returns 503 when whitelist is empty', function () {
 
 test('web check-in saves present during the present window', function () {
     freezeWebTime('09:42:00');
+    bindVerifiedFaceVerifier();
     $student = createWebStudent();
     $countBefore = AttendanceListe::count();
 
@@ -261,11 +279,40 @@ test('web check-in saves present during the present window', function () {
 
 test('web check-in saves late after the present window', function () {
     freezeWebTime('09:46:00');
+    bindVerifiedFaceVerifier();
     $student = createWebStudent();
 
     postWebCheckIn($this, $student, '203.0.113.1')
         ->assertOk()
         ->assertJsonPath('status', 'late');
+});
+
+test('web check-in without live_photo is rejected and does not write attendance', function () {
+    freezeWebTime('09:42:00');
+    $student = createWebStudent();
+    $listCountBefore = AttendanceListe::count();
+    $attendanceCountBefore = Attendance::count();
+
+    postWebCheckIn($this, $student, '203.0.113.1', withLivePhoto: false)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('live_photo');
+
+    expect(AttendanceListe::count())->toBe($listCountBefore)
+        ->and(Attendance::count())->toBe($attendanceCountBefore);
+});
+
+test('web check-in with a jpeg but no face verification does not write attendance', function () {
+    freezeWebTime('09:42:00');
+    $student = createWebStudent();
+    $listCountBefore = AttendanceListe::count();
+    $attendanceCountBefore = Attendance::count();
+
+    postWebCheckIn($this, $student, '203.0.113.1')
+        ->assertStatus(503)
+        ->assertJson(['message' => 'Unable to verify your identity.']);
+
+    expect(AttendanceListe::count())->toBe($listCountBefore)
+        ->and(Attendance::count())->toBe($attendanceCountBefore);
 });
 
 test('web check-in during a gap returns 422 with no database writes', function () {
@@ -282,6 +329,7 @@ test('web check-in during a gap returns 422 with no database writes', function (
 
 test('web check-in for an already marked slot returns 409 with no database writes', function () {
     freezeWebTime('09:40:00');
+    bindVerifiedFaceVerifier();
     $student = createWebStudent();
     $attendance = Attendance::create([
         'formation_id' => $this->formation->id,
@@ -306,6 +354,7 @@ test('web check-in for an already marked slot returns 409 with no database write
 
 test('web and mobile check-in produce identical grading via shared service', function () {
     freezeWebTime('09:42:00');
+    bindVerifiedFaceVerifier();
 
     $webStudent = createWebStudent(['email' => 'web-student@example.com']);
     $mobileStudent = createWebStudent(['email' => 'mobile-student@example.com']);

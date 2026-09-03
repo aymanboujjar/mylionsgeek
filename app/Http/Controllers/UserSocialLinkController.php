@@ -18,7 +18,7 @@ class UserSocialLinkController extends Controller
 
         $data = $request->validate([
             'title' => 'required|string|max:80',
-            'url' => 'required|string|max:2048',
+            'url' => UserSocialLink::URL_RULES,
         ]);
 
         UserSocialLink::create([
@@ -45,7 +45,7 @@ class UserSocialLinkController extends Controller
 
         $data = $request->validate([
             'title' => 'required|string|max:80',
-            'url' => 'required|string|max:2048',
+            'url' => UserSocialLink::URL_RULES,
         ]);
 
         $link->update($data);

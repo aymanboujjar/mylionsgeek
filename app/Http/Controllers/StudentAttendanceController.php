@@ -33,6 +33,7 @@ class StudentAttendanceController extends Controller
         $validated = $request->validate([
             'formation_id' => 'required|integer|exists:formations,id',
             'attendance_day' => 'nullable|date',
+            'live_photo' => AttendanceCheckInService::livePhotoRules(),
         ]);
 
         $attendanceDay = $checkInService->resolveAttendanceDay($validated['attendance_day'] ?? null);
@@ -41,6 +42,7 @@ class StudentAttendanceController extends Controller
             Auth::user(),
             (int) $validated['formation_id'],
             $attendanceDay,
+            $request->file('live_photo'),
         );
 
         return response()->json($result);

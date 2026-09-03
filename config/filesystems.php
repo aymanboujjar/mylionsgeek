@@ -37,6 +37,24 @@ return [
             'report' => false,
         ],
 
+        'face_enrollments' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/face-enrollments'),
+            'visibility' => 'private',
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
+        'documents' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/documents'),
+            'visibility' => 'private',
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

@@ -94,16 +94,21 @@ class GamesController extends Controller
     /**
      * Get game state for polling
      */
-    public function getGameState(Request $request, $roomId)
+    public function getGameState(Request $request, $roomId, AblyCapabilityService $capabilities)
     {
         $session = GameSession::where('room_id', $roomId)->first();
-        
+
         if (!$session) {
             return response()->json([
                 'exists' => false,
                 'game_state' => null,
                 'last_activity' => null,
             ]);
+        }
+
+        $user = Auth::user();
+        if (! $user || ! $capabilities->userIsAuthorizedForGame($user, $session->game_state)) {
+            return response()->json(['error' => 'Forbidden'], 403);
         }
 
         return response()->json([
@@ -124,27 +129,29 @@ class GamesController extends Controller
             'game_state' => 'required|array',
         ]);
 
-        // Get or create session
+        $user = Auth::user();
         $session = GameSession::where('room_id', $roomId)->first();
         $previousParticipantIds = [];
-        if ($session && is_array($session->game_state['participant_user_ids'] ?? null)) {
-            $previousParticipantIds = $session->game_state['participant_user_ids'];
-        }
-        
-        if (!$session) {
-            // Create new session
+
+        if ($session) {
+            if (! $user || ! $capabilities->userIsAuthorizedForGame($user, $session->game_state)) {
+                return response()->json(['error' => 'Forbidden'], 403);
+            }
+
+            if (is_array($session->game_state['participant_user_ids'] ?? null)) {
+                $previousParticipantIds = $session->game_state['participant_user_ids'];
+            }
+
+            $session->updateState($request->game_state);
+        } else {
             $session = GameSession::create([
                 'room_id' => $roomId,
                 'game_type' => $request->game_type,
                 'game_state' => $request->game_state,
                 'last_activity' => now(),
             ]);
-        } else {
-            // Update existing session - preserves players array
-            $session->updateState($request->game_state);
         }
 
-        $user = Auth::user();
         if ($user) {
             $capabilities->recordGameParticipant($session, $user, $previousParticipantIds);
         }
@@ -203,13 +210,19 @@ class GamesController extends Controller
      */
     public function resetGameSession(Request $request, $roomId, AblyCapabilityService $capabilities)
     {
+        $user = Auth::user();
         $session = GameSession::where('room_id', $roomId)->first();
         $previousParticipantIds = [];
-        if ($session && is_array($session->game_state['participant_user_ids'] ?? null)) {
-            $previousParticipantIds = $session->game_state['participant_user_ids'];
-        }
-        
+
         if ($session) {
+            if (! $user || ! $capabilities->userIsAuthorizedForGame($user, $session->game_state)) {
+                return response()->json(['error' => 'Forbidden'], 403);
+            }
+
+            if (is_array($session->game_state['participant_user_ids'] ?? null)) {
+                $previousParticipantIds = $session->game_state['participant_user_ids'];
+            }
+
             $session->updateState($request->get('initial_state', []));
         } else {
             $session = GameSession::getOrCreate(
@@ -219,7 +232,6 @@ class GamesController extends Controller
             );
         }
 
-        $user = Auth::user();
         if ($user) {
             $capabilities->recordGameParticipant($session, $user, $previousParticipantIds);
         }

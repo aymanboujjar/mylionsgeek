@@ -5,8 +5,11 @@ use App\Models\AttendanceListe;
 use App\Models\Formation;
 use App\Models\Note;
 use App\Models\User;
+use App\Services\FaceVerification\FaceVerificationResult;
+use App\Services\FaceVerification\FaceVerificationService;
 use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -101,14 +104,22 @@ function createCheckInStudent(array $attributes = []): User
     ], $attributes));
 }
 
-function postCheckIn(TestCase $test, User $actor, string $remoteAddr, array $overrides = []): TestResponse
+function postCheckIn(TestCase $test, User $actor, string $remoteAddr, array $overrides = [], bool $withLivePhoto = true): TestResponse
 {
+    $payload = array_merge([
+        'formation_id' => $test->formation->id,
+        'attendance_day' => Carbon::now()->toDateString(),
+    ], $overrides);
+
+    if ($withLivePhoto && ! array_key_exists('live_photo', $payload)) {
+        $payload['live_photo'] = m8LivePhoto();
+    }
+
     return $test->actingAs($actor, 'sanctum')
         ->withServerVariables(['REMOTE_ADDR' => $remoteAddr])
-        ->postJson('/api/mobile/attendance/check-in', array_merge([
-            'formation_id' => $test->formation->id,
-            'attendance_day' => Carbon::now()->toDateString(),
-        ], $overrides));
+        ->post('/api/mobile/attendance/check-in', $payload, [
+            'Accept' => 'application/json',
+        ]);
 }
 
 function freezeCheckInTime(string $time): void
@@ -118,6 +129,7 @@ function freezeCheckInTime(string $time): void
 
 test('check-in saves present during the present window', function () {
     freezeCheckInTime('09:42:00');
+    bindVerifiedFaceVerifier();
 
     $student = createCheckInStudent();
     $countBefore = AttendanceListe::count();
@@ -143,6 +155,7 @@ test('check-in saves present during the present window', function () {
 
 test('check-in saves late after the present window', function () {
     freezeCheckInTime('09:46:00');
+    bindVerifiedFaceVerifier();
 
     $student = createCheckInStudent();
 
@@ -191,6 +204,7 @@ test('check-in outside school hours returns 422 with no database writes', functi
 
 test('check-in for an already marked slot returns 409 with no database writes', function () {
     freezeCheckInTime('09:40:00');
+    bindVerifiedFaceVerifier();
 
     $student = createCheckInStudent();
     $attendance = Attendance::create([
@@ -218,6 +232,7 @@ test('check-in for an already marked slot returns 409 with no database writes', 
 
 test('coach absent without notes blocks student check-in with 409', function () {
     freezeCheckInTime('09:40:00');
+    bindVerifiedFaceVerifier();
 
     $student = createCheckInStudent();
     $attendance = Attendance::create([
@@ -246,6 +261,7 @@ test('coach absent without notes blocks student check-in with 409', function () 
 
 test('later check-in preserves an earlier marked slot', function () {
     freezeCheckInTime('11:35:00');
+    bindVerifiedFaceVerifier();
 
     $student = createCheckInStudent();
     $attendance = Attendance::create([
@@ -276,6 +292,7 @@ test('later check-in preserves an earlier marked slot', function () {
 
 test('lunch-only check-in finalizes morning as absent and leaves evening pending', function () {
     freezeCheckInTime('11:35:00');
+    bindVerifiedFaceVerifier();
 
     $student = createCheckInStudent();
 
@@ -306,6 +323,7 @@ test('off-network student receives 403 on check-in', function () {
 
 test('staff bypasses network restriction on check-in', function () {
     freezeCheckInTime('09:42:00');
+    bindVerifiedFaceVerifier();
 
     $coach = createCheckInStudent(['role' => ['coach']]);
     $countBefore = AttendanceListe::count();
@@ -358,16 +376,133 @@ test('slot-status with only formation_id defaults attendance_day to server today
         ]);
 });
 
-test('check-in with only formation_id grades for server today', function () {
+test('check-in without live_photo is rejected and does not write attendance', function () {
     freezeCheckInTime('09:42:00');
 
     $student = createCheckInStudent();
+    $listCountBefore = AttendanceListe::count();
+    $attendanceCountBefore = Attendance::count();
 
     $this->actingAs($student, 'sanctum')
         ->withServerVariables(['REMOTE_ADDR' => '203.0.113.1'])
         ->postJson('/api/mobile/attendance/check-in', [
             'formation_id' => $this->formation->id,
         ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('live_photo');
+
+    expect(AttendanceListe::count())->toBe($listCountBefore)
+        ->and(Attendance::count())->toBe($attendanceCountBefore);
+});
+
+test('check-in rejects a non-image live_photo and does not write attendance', function () {
+    freezeCheckInTime('09:42:00');
+
+    $student = createCheckInStudent();
+    $listCountBefore = AttendanceListe::count();
+    $attendanceCountBefore = Attendance::count();
+
+    postCheckIn($this, $student, '203.0.113.1', [
+        'live_photo' => UploadedFile::fake()->create('note.txt', 20, 'text/plain'),
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('live_photo');
+
+    expect(AttendanceListe::count())->toBe($listCountBefore)
+        ->and(Attendance::count())->toBe($attendanceCountBefore);
+});
+
+test('a valid jpeg without server-side face verification does not create attendance', function () {
+    freezeCheckInTime('09:42:00');
+
+    $student = createCheckInStudent();
+    $listCountBefore = AttendanceListe::count();
+    $attendanceCountBefore = Attendance::count();
+
+    postCheckIn($this, $student, '203.0.113.1')
+        ->assertStatus(503)
+        ->assertJson(['message' => 'Unable to verify your identity.']);
+
+    expect(AttendanceListe::count())->toBe($listCountBefore)
+        ->and(Attendance::count())->toBe($attendanceCountBefore)
+        ->and(Note::count())->toBe(0);
+});
+
+test('rejected face verification does not create attendance', function () {
+    freezeCheckInTime('09:42:00');
+
+    app()->instance(FaceVerificationService::class, new class implements FaceVerificationService
+    {
+        public function verify(User $user, UploadedFile $livePhoto): FaceVerificationResult
+        {
+            return FaceVerificationResult::Rejected;
+        }
+    });
+
+    $student = createCheckInStudent();
+    $listCountBefore = AttendanceListe::count();
+    $attendanceCountBefore = Attendance::count();
+
+    postCheckIn($this, $student, '203.0.113.1')
+        ->assertUnprocessable()
+        ->assertJson(['message' => 'Face not recognized.']);
+
+    expect(AttendanceListe::count())->toBe($listCountBefore)
+        ->and(Attendance::count())->toBe($attendanceCountBefore);
+});
+
+test('unenrolled student cannot check in to another formation', function () {
+    freezeCheckInTime('09:42:00');
+
+    $otherFormation = Formation::create([
+        'name' => 'Other Formation',
+        'category' => 'media',
+        'start_time' => '2025-01-01',
+        'user_id' => null,
+    ]);
+    $student = createCheckInStudent();
+    $listCountBefore = AttendanceListe::count();
+    $attendanceCountBefore = Attendance::count();
+
+    postCheckIn($this, $student, '203.0.113.1', [
+        'formation_id' => $otherFormation->id,
+    ])
+        ->assertForbidden()
+        ->assertJson(['message' => 'Forbidden']);
+
+    expect(AttendanceListe::count())->toBe($listCountBefore)
+        ->and(Attendance::count())->toBe($attendanceCountBefore);
+});
+
+test('client-supplied user_id cannot check in another student', function () {
+    freezeCheckInTime('09:42:00');
+    bindVerifiedFaceVerifier();
+
+    $actor = createCheckInStudent(['email' => 'm8.actor@example.com']);
+    $other = createCheckInStudent(['email' => 'm8.other@example.com']);
+
+    postCheckIn($this, $actor, '203.0.113.1', [
+        'user_id' => $other->id,
+    ])
+        ->assertOk()
+        ->assertJsonPath('row.user_id', $actor->id);
+
+    expect(AttendanceListe::query()->where('user_id', $actor->id)->exists())->toBeTrue()
+        ->and(AttendanceListe::query()->where('user_id', $other->id)->exists())->toBeFalse();
+});
+
+test('verified check-in with only formation_id grades for server today', function () {
+    freezeCheckInTime('09:42:00');
+    bindVerifiedFaceVerifier();
+
+    $student = createCheckInStudent();
+
+    $this->actingAs($student, 'sanctum')
+        ->withServerVariables(['REMOTE_ADDR' => '203.0.113.1'])
+        ->post('/api/mobile/attendance/check-in', [
+            'formation_id' => $this->formation->id,
+            'live_photo' => m8LivePhoto(),
+        ], ['Accept' => 'application/json'])
         ->assertOk()
         ->assertJson([
             'slot' => 'morning',
