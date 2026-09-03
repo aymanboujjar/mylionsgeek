@@ -93,14 +93,19 @@ class AttendanceCheckInService
     }
 
     /**
+     * @param  array{passed?: bool, confidence?: float|null, method?: string}|null  $verificationResult
      * @return array{
      *     slot: string,
      *     status: string,
      *     row: array<string, mixed>
      * }
      */
-    public function checkIn(User $user, int $formationId, string $attendanceDay): array
-    {
+    public function checkIn(
+        User $user,
+        int $formationId,
+        string $attendanceDay,
+        ?array $verificationResult = null,
+    ): array {
         $this->assertEnrolled($user, $formationId);
 
         $today = Carbon::now()->toDateString();
@@ -156,6 +161,16 @@ class AttendanceCheckInService
             $pipeJoinedNotes,
             $user->name ?? 'Student',
         );
+
+        if ($verificationResult !== null) {
+            try {
+                $row->face_verification_method = $verificationResult['method'] ?? null;
+                $row->face_match_confidence = $verificationResult['confidence'] ?? null;
+                $row->save();
+            } catch (\Throwable) {
+                // Audit columns must never block attendance.
+            }
+        }
 
         return [
             'slot' => $currentSlot,
