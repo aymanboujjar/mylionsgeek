@@ -34,7 +34,6 @@ class OrganisationOnboardingController extends Controller
                 'enterprise_name' => $organization->enterprise_name,
                 'sector' => $organization->sector,
                 'location' => $organization->location,
-                'linkedin_url' => $organization->linkedin_url,
                 'phone' => $organization->phone,
             ],
             'passwordChangeOnly' => $organization->hasCompletedOnboarding() && $user->must_change_password,
@@ -102,7 +101,6 @@ class OrganisationOnboardingController extends Controller
             'enterprise_name' => $validated['enterprise_name'],
             'sector' => $validated['sector'],
             'location' => $validated['location'],
-            'linkedin_url' => $validated['linkedin_url'] ?? null,
             'phone' => $validated['phone'],
             'onboarding_completed_at' => now(),
         ]);
@@ -173,17 +171,6 @@ class OrganisationOnboardingController extends Controller
     {
         return [
             'location' => ['required', 'string', 'max:255'],
-            'linkedin_url' => [
-                'nullable',
-                'string',
-                'max:500',
-                'url',
-                function (string $attribute, mixed $value, \Closure $fail): void {
-                    if ($value && ! str_contains(mb_strtolower((string) $value), 'linkedin')) {
-                        $fail('The LinkedIn URL must contain "linkedin".');
-                    }
-                },
-            ],
             'phone' => [
                 'required',
                 'string',

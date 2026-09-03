@@ -90,7 +90,7 @@ class UsersController extends Controller
         $roles = is_array($user->role) ? $user->role : [$user->role];
 
         if (! in_array('admin', $roles, true) && ! in_array('super_admin', $roles, true)) {
-            $requestedFields = array_values(array_diff($requestedFields, ['cin', 'phone', 'role', 'has_handicap']));
+            $requestedFields = array_values(array_diff($requestedFields, self::RESTRICTED_EXPORT_FIELDS));
         }
 
         $fieldMap = [
@@ -145,13 +145,7 @@ class UsersController extends Controller
                     return $user->has_handicap ? 'Yes' : 'No';
                 },
                 'program_status' => function ($user) {
-                    return match ($user->program_status) {
-                        'active' => 'Active',
-                        'certified' => 'Certificate',
-                        'not_certified' => 'Not Certificate',
-                        'left' => 'Left',
-                        default => '',
-                    };
+                    return User::PROGRAM_STATUS_LABELS[$user->program_status] ?? '';
                 },
                 'access_studio' => function ($user) {
                     return (string) $user->access_studio === '1' || $user->access_studio === 1 ? 'Yes' : 'No';
@@ -1196,7 +1190,19 @@ class UsersController extends Controller
             }
         }
 
+        $previousProgramStatus = $user->program_status;
+
         $user->update($validated);
+
+        if (
+            isset($validated['program_status'])
+            && $validated['program_status'] === User::PROGRAM_STATUS_CERTIFIED
+            && $previousProgramStatus !== User::PROGRAM_STATUS_CERTIFIED
+        ) {
+            $user->forceFill([
+                'certified_at' => $user->certified_at ?? now(),
+            ])->save();
+        }
 
         return redirect()->back()->with('success', 'User updated successfully');
     }

@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\API\SearchController as ApiSearchController;
-use App\Http\Controllers\LinkedInController;
 use App\Http\Controllers\ReservationsController;
 use App\Http\Controllers\UsersController;
 use Illuminate\Http\Request;
@@ -36,11 +35,6 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/access-requests', [ReservationsController::class, 'requestAccess'])->name('access-requests.create');
 
     Route::get('/api/search', [ApiSearchController::class, 'index']);
-
-    Route::get('/auth/linkedin/redirect', [LinkedInController::class, 'redirect'])->name('linkedin.redirect');
-    Route::get('/auth/linkedin/callback', [LinkedInController::class, 'callback'])->name('linkedin.callback');
-    Route::post('/linkedin/share-prompted', [LinkedInController::class, 'markSharePrompted'])->name('linkedin.share.prompted');
-    Route::post('/linkedin/share-dismiss', [LinkedInController::class, 'dismissSharePrompt'])->name('linkedin.share.dismiss');
 
     Route::get('/api/notifications/pending-reservations', function (Request $request) {
         $user = $request->user();

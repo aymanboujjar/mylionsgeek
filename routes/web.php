@@ -12,7 +12,6 @@
 
 // General — public & cross-cutting routes
 require __DIR__ . '/general/home.php';
-require __DIR__ . '/general/certificates.php';
 require __DIR__ . '/general/appointments.php';
 require __DIR__ . '/general/authenticated.php';
 require __DIR__ . '/general/notifications.php';
@@ -26,7 +25,6 @@ require __DIR__ . '/settings.php';
 
 // Admin
 require __DIR__ . '/admin/dashboard.php';
-require __DIR__ . '/admin/settings.php';
 require __DIR__ . '/admin/appversion.php';
 require __DIR__ . '/admin/users.php';
 require __DIR__ . '/admin/computers.php';

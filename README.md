@@ -114,8 +114,7 @@ Below is the full map of what the platform does. Sections match what users see i
 - Work experience entries  
 - Education entries  
 - Upload and update **CV / resume** (viewable by permitted staff and recruiters)  
-- Download **training certificate** when eligible  
-- Optional **LinkedIn** connection (settings exist for sharing; certificate share to LinkedIn may be limited to PDF download)
+- Download **training certificate** when eligible
 
 ### 2.3 Jobs
 
@@ -349,7 +348,7 @@ Staff coaches and admins can use mobile training and attendance tools where thei
 
 ### 6.12 Settings
 
-- **LinkedIn integration** settings (for organisation-wide connection features)  
+- Profile, password, and account management settings
 
 ### 6.13 Appointments (admin list)
 

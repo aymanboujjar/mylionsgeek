@@ -47,16 +47,6 @@ export default function OrganisationCompanyIndex({ organization }) {
                         <DetailRow label="Sector" value={org.sector} />
                         <DetailRow label="Location" value={org.location} />
                         <DetailRow label="Phone" value={org.phone} />
-                        <DetailRow
-                            label="LinkedIn"
-                            value={
-                                org.linkedin_url ? (
-                                    <a href={org.linkedin_url} target="_blank" rel="noreferrer" className="text-alpha underline">
-                                        {org.linkedin_url}
-                                    </a>
-                                ) : null
-                            }
-                        />
                     </dl>
                 </div>
             </div>

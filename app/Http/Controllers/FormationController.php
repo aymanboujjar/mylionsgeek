@@ -16,7 +16,6 @@ use App\Services\CoachAttendanceSaveService;
 use App\Services\DisciplineService;
 use App\Services\GeekLabCertificateCodeAllocator;
 use App\Services\ProgramStatusService;
-use App\Services\UserLifeStatusService;
 use App\Services\StudentCheckInSlotService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -708,14 +707,8 @@ class FormationController extends Controller
                     'program_status' => ProgramStatusService::CERTIFIED,
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
-                    'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
                     'certificate_pdf_path' => $pdfStoragePath,
                 ];
-                if ($user->program_status !== ProgramStatusService::CERTIFIED) {
-                    $certFields['linkedin_share_prompted_at'] = null;
-                    $certFields['linkedin_share_dismissed_at'] = null;
-                    $certFields['linkedin_shared_at'] = null;
-                }
                 if ($isGeekLab && $certificateCode !== null) {
                     $certFields['certificate_code'] = $certificateCode;
                 }
@@ -882,15 +875,9 @@ class FormationController extends Controller
                     'program_status' => ProgramStatusService::CERTIFIED,
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
-                    'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
                     'certificate_pdf_path' => $pdfStoragePath,
                     'certificate_code' => $certificateCode,
                 ];
-                if ($user->program_status !== ProgramStatusService::CERTIFIED) {
-                    $certFields['linkedin_share_prompted_at'] = null;
-                    $certFields['linkedin_share_dismissed_at'] = null;
-                    $certFields['linkedin_shared_at'] = null;
-                }
 
                 $user->forceFill($certFields)->save();
 

@@ -99,10 +99,6 @@ Route::get('/inject-student', function () {
             $user->last_online = null;
             $user->certified_at = null;
             $user->certified_training_id = null;
-            $user->linkedin_share_prompted_at = null;
-            $user->linkedin_share_dismissed_at = null;
-            $user->linkedin_shared_at = null;
-            $user->certificate_share_token = null;
             $user->previous_week_rank = null;
             $user->last_rank_update = null;
             $user->save();
