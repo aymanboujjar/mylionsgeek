@@ -15,6 +15,8 @@ class AttendanceListe extends Model
         'morning',
         'lunch',
         'evening',
+        'face_verification_method',
+        'face_match_confidence',
     ];
 
     public $timestamps = true; 

@@ -1,9 +1,6 @@
+import FaceCaptureWidget from '@/components/FaceCaptureWidget';
 import { Button } from '@/components/ui/button';
-import {
-    buildButtonLabel,
-    buildHelperText,
-    isCheckInDisabled,
-} from '@/lib/attendance-check-in-ui';
+import { buildButtonLabel, buildHelperText, isCheckInDisabled, resolveCheckInError } from '@/lib/attendance-check-in-ui';
 import { shouldShowReminderBanner, slotLabel } from '@/lib/attendance-slots';
 import { CheckCircle2, Clock, Coffee, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -35,6 +32,11 @@ export default function AttendanceCheckInPanel({
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
+    const [showFaceCapture, setShowFaceCapture] = useState(false);
+    const [faceError, setFaceError] = useState(null);
+    const [isVerifying, setIsVerifying] = useState(false);
+    const [successTime, setSuccessTime] = useState(null);
+    const [faceRetryNonce, setFaceRetryNonce] = useState(0);
 
     useEffect(() => {
         setSlotStatus(initialSlotStatus);
@@ -80,48 +82,101 @@ export default function AttendanceCheckInPanel({
 
     const buttonLabel = useMemo(() => (slotStatus ? buildButtonLabel(slotStatus) : 'Check in'), [slotStatus]);
     const helperText = useMemo(() => (slotStatus ? buildHelperText(slotStatus) : ''), [slotStatus]);
-    const disabled = !formation || !slotStatus || isCheckInDisabled(slotStatus, submitting);
+    const disabled = !formation || !slotStatus || isCheckInDisabled(slotStatus, submitting || isVerifying);
     const reminderVisible = slotStatus ? shouldShowReminderBanner(slotStatus) : false;
     const presentWindow = slotStatus?.present_minutes ?? 15;
 
-    const handleCheckIn = async () => {
+    const handleCheckIn = () => {
         if (!formation?.id || disabled) {
             return;
         }
 
+        setError(null);
+        setSuccess(null);
+        setFaceError(null);
+        setSuccessTime(null);
+        setShowFaceCapture(true);
+    };
+
+    const handleFaceCaptureOpenChange = (open) => {
+        if (!open && isVerifying) {
+            return;
+        }
+        if (!open) {
+            setShowFaceCapture(false);
+            setFaceError(null);
+        } else {
+            setShowFaceCapture(true);
+        }
+    };
+
+    const handleCapture = async (blob) => {
+        if (!formation?.id) {
+            return;
+        }
+
+        setFaceError(null);
+        setIsVerifying(true);
         setSubmitting(true);
         setError(null);
         setSuccess(null);
 
+        const formData = new FormData();
+        formData.append('formation_id', String(formation.id));
+        if (attendanceDay) {
+            formData.append('attendance_day', attendanceDay);
+        }
+        formData.append('live_photo', blob, 'live_photo.jpg');
+
         try {
-            const response = await fetch('/students/attendance/check-in', {
+            const res = await fetch('/students/attendance/check-in', {
                 method: 'POST',
                 headers: {
                     Accept: 'application/json',
-                    'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': csrfToken(),
+                    // Do NOT set Content-Type manually
                 },
-                body: JSON.stringify({
-                    formation_id: formation.id,
-                    attendance_day: attendanceDay,
-                }),
+                body: formData,
             });
 
-            const data = await response.json().catch(() => ({}));
+            const data = await res.json().catch(() => ({}));
+            setIsVerifying(false);
+            setSubmitting(false);
 
-            if (!response.ok) {
-                setError(data.message || 'Unable to check in right now.');
+            if (res.ok) {
+                const time = new Date().toLocaleTimeString('en-GB', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                });
+                setSuccessTime(time);
+                setSuccess(`You're marked present`);
+                setRow(data.row);
+                await refreshSlotStatus();
+                onCheckInSuccess?.();
+
+                setTimeout(() => {
+                    setShowFaceCapture(false);
+                    setFaceError(null);
+                }, 1500);
                 return;
             }
 
-            setSuccess(`Checked in for ${slotLabel(data.slot)} (${data.status}).`);
-            setRow(data.row);
-            await refreshSlotStatus();
-            onCheckInSuccess?.();
+            const resolved = resolveCheckInError(res.status, data);
+
+            if (resolved.type === 'face_error') {
+                setFaceError(resolved.message);
+                setShowFaceCapture(true);
+                setFaceRetryNonce((n) => n + 1);
+                return;
+            }
+
+            setShowFaceCapture(false);
+            setError(resolved.message);
         } catch {
-            setError('Network error. Please try again.');
-        } finally {
+            setIsVerifying(false);
             setSubmitting(false);
+            setShowFaceCapture(false);
+            setError('Network error. Please try again.');
         }
     };
 
@@ -147,7 +202,17 @@ export default function AttendanceCheckInPanel({
                 </div>
             )}
 
-            {success && (
+            {successTime && !showFaceCapture ? (
+                <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-green-900 dark:border-green-800 dark:bg-green-950/40 dark:text-green-100">
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#51b04f]" />
+                    <div>
+                        <p className="font-medium">You&apos;re marked present</p>
+                        <p className="mt-0.5 text-sm opacity-80">Checked in · Today {successTime}</p>
+                    </div>
+                </div>
+            ) : null}
+
+            {success && !successTime && (
                 <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-green-900 dark:border-green-800 dark:bg-green-950/40 dark:text-green-100">
                     <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
                     <p className="text-sm">{success}</p>
@@ -160,18 +225,25 @@ export default function AttendanceCheckInPanel({
                 </div>
             )}
 
-            <Button type="button" className="h-12 w-full text-base" disabled={disabled} onClick={handleCheckIn}>
-                {submitting ? (
-                    <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Checking in…
-                    </>
-                ) : (
-                    buttonLabel
-                )}
-            </Button>
+            {isVerifying && !showFaceCapture ? (
+                <div className="flex h-12 items-center justify-center gap-3 rounded-md border border-border bg-muted/40">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-[#ffc801]" />
+                    <span className="text-sm text-muted-foreground">Checking it&apos;s you…</span>
+                </div>
+            ) : !successTime ? (
+                <Button type="button" className="h-12 w-full text-base" disabled={disabled} onClick={handleCheckIn}>
+                    {submitting ? (
+                        <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Checking in…
+                        </>
+                    ) : (
+                        buttonLabel
+                    )}
+                </Button>
+            ) : null}
 
-            {helperText && slotStatus.phase !== 'gap' && (
+            {helperText && slotStatus.phase !== 'gap' && !successTime && (
                 <p className="text-center text-sm text-muted-foreground">{helperText}</p>
             )}
 
@@ -205,6 +277,17 @@ export default function AttendanceCheckInPanel({
                     </ul>
                 </div>
             )}
+
+            <FaceCaptureWidget
+                open={showFaceCapture}
+                onOpenChange={handleFaceCaptureOpenChange}
+                onCapture={handleCapture}
+                errorMessage={faceError}
+                isVerifying={isVerifying}
+                successTime={showFaceCapture ? successTime : null}
+                retryNonce={faceRetryNonce}
+                onClearFaceError={() => setFaceError(null)}
+            />
         </div>
     );
 }
