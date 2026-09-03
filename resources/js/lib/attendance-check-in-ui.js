@@ -1,3 +1,4 @@
+import { ATTENDANCE_ERROR_CODES, ATTENDANCE_ERROR_MESSAGES } from './attendance-error-codes.js';
 import { alreadyMarkedSlots, slotLabel } from './attendance-slots.js';
 
 /** @param {object} slotStatus */
@@ -73,4 +74,35 @@ export function isCheckInDisabled(slotStatus, submitting) {
     }
 
     return alreadyMarkedSlots(slotStatus).includes(current_slot);
+}
+
+/**
+ * Resolves a failed check-in response into a structured result the UI can act on.
+ *
+ * error_code is checked first — before HTTP status — so 503 FACE_SERVICE_UNAVAILABLE
+ * and 503 NETWORK_NOT_CONFIGURED never collide, and FACE_NOT_RECOGNIZED always
+ * reopens the face dialog regardless of status.
+ *
+ * @param {number} status
+ * @param {{ error_code?: string, message?: string } | null | undefined} data
+ * @returns {{ type: 'face_error' | 'inline_error', message: string, errorCode: string | null }}
+ */
+export function resolveCheckInError(status, data) {
+    const errorCode = data?.error_code ?? null;
+
+    if (errorCode === ATTENDANCE_ERROR_CODES.FACE_NOT_RECOGNIZED) {
+        return {
+            type: 'face_error',
+            message: "Hmm, we couldn't tell it was you",
+            errorCode,
+        };
+    }
+
+    const message = ATTENDANCE_ERROR_MESSAGES[errorCode] ?? data?.message ?? ATTENDANCE_ERROR_MESSAGES.fallback;
+
+    return {
+        type: 'inline_error',
+        message,
+        errorCode,
+    };
 }

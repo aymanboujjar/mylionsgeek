@@ -1,11 +1,31 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import {
-    flashFromNetworkCheckFailure,
-    NETWORK_CHECK_GENERIC_ERROR,
-} from './attendance-network-check.js';
+import { ATTENDANCE_ERROR_CODES, ATTENDANCE_ERROR_MESSAGES } from './attendance-error-codes.js';
+import { flashFromNetworkCheckFailure, NETWORK_CHECK_GENERIC_ERROR } from './attendance-network-check.js';
 
 describe('flashFromNetworkCheckFailure', () => {
+    it('maps NOT_ON_SCHOOL_NETWORK via error_code, not status', () => {
+        const flash = flashFromNetworkCheckFailure(403, {
+            error_code: ATTENDANCE_ERROR_CODES.NOT_ON_SCHOOL_NETWORK,
+            message: 'server-specific wifi copy',
+        });
+
+        assert.deepEqual(flash, {
+            message: ATTENDANCE_ERROR_MESSAGES[ATTENDANCE_ERROR_CODES.NOT_ON_SCHOOL_NETWORK],
+            type: 'error',
+        });
+    });
+
+    it('maps NETWORK_NOT_CONFIGURED via error_code so it does not collide with other 503s', () => {
+        const flash = flashFromNetworkCheckFailure(503, {
+            error_code: ATTENDANCE_ERROR_CODES.NETWORK_NOT_CONFIGURED,
+            message: 'Attendance network is not configured.',
+        });
+
+        assert.equal(flash.message, ATTENDANCE_ERROR_MESSAGES[ATTENDANCE_ERROR_CODES.NETWORK_NOT_CONFIGURED]);
+        assert.equal(flash.type, 'error');
+    });
+
     it('preserves 403 message from school.network', () => {
         const flash = flashFromNetworkCheckFailure(403, {
             message: 'You must be connected to the school WiFi to check in.',

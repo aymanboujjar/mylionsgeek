@@ -122,12 +122,8 @@ export default function StudentAttendanceReminderBanner() {
                 return;
             }
 
-            let data = {};
-            if (response.status === 403 || response.status === 503) {
-                data = await response.json().catch(() => ({}));
-            }
-
-            setFlashMessage(flashFromNetworkCheckFailure(response.status, data));
+            const body = await response.json().catch(() => ({}));
+            setFlashMessage(flashFromNetworkCheckFailure(response.status, body));
         } catch {
             setFlashMessage(flashFromNetworkCheckFailure(0, null));
         } finally {
