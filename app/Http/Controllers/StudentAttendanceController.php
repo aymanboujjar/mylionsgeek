@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\FaceVerificationException;
 use App\Services\AttendanceCheckInService;
+use App\Services\FaceVerificationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -28,18 +30,48 @@ class StudentAttendanceController extends Controller
         ]);
     }
 
-    public function checkIn(Request $request, AttendanceCheckInService $checkInService)
-    {
+    public function checkIn(
+        Request $request,
+        AttendanceCheckInService $checkInService,
+        FaceVerificationService $faceService,
+    ) {
         $validated = $request->validate([
             'formation_id' => 'required|integer|exists:formations,id',
             'attendance_day' => 'nullable|date',
             'live_photo' => AttendanceCheckInService::livePhotoRules(),
         ]);
 
+        $user = Auth::user();
         $attendanceDay = $checkInService->resolveAttendanceDay($validated['attendance_day'] ?? null);
 
+        if ($faceService->shouldBypass($user)) {
+            $verificationResult = [
+                'passed' => true,
+                'confidence' => null,
+                'method' => 'staff-bypass',
+            ];
+        } else {
+            try {
+                $verificationResult = $faceService->verify(
+                    $user,
+                    $request->file('live_photo'),
+                );
+            } catch (FaceVerificationException $e) {
+                return response()->json([
+                    'message' => 'Verification service unavailable. Please contact your teacher.',
+                ], 503);
+            }
+
+            if (! $verificationResult['passed']) {
+                return response()->json([
+                    'message' => 'Face not recognized. Please try again.',
+                    'error_code' => 'FACE_NOT_RECOGNIZED',
+                ], 422);
+            }
+        }
+
         $result = $checkInService->checkIn(
-            Auth::user(),
+            $user,
             (int) $validated['formation_id'],
             $attendanceDay,
             $request->file('live_photo'),
