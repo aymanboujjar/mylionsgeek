@@ -18,8 +18,8 @@ function looksLikeHtml(s) {
 
 export default function JobShow({ job }) {
     const { flash, auth } = usePage().props;
-    // resume_url is only set when the file exists on disk (see User::resumePublicUrl)
-    const hasProfileResume = Boolean(auth?.user?.resume_url);
+    // Gated resume_view_url (or resume filename) — public resume_url is always null
+    const hasProfileResume = Boolean(auth?.user?.resume_view_url || auth?.user?.resume);
 
     const descriptionHtml = useMemo(() => {
         const raw = job?.description ?? '';
@@ -63,7 +63,7 @@ export default function JobShow({ job }) {
         if (open) {
             setCvInputKey((k) => k + 1);
             setCvChoiceError('');
-            const useSaved = Boolean(auth?.user?.resume_url);
+            const useSaved = Boolean(auth?.user?.resume_view_url || auth?.user?.resume);
             setData('subject', '');
             setData('cover_letter', '');
             setData('cv', null);

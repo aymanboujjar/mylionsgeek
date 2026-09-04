@@ -107,7 +107,7 @@ class ProjectController extends Controller
             $request->validate([
                 'name' => 'required|string|max:255',
                 'description' => 'nullable|string',
-                'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif',
+                'photo' => 'nullable|image|mimes:jpeg,png,jpg,webp,gif|max:2048',
                 'start_date' => 'nullable|date',
                 'end_date' => 'nullable|date|after:start_date',
                 'status' => 'nullable|in:active,completed,on_hold,cancelled',
@@ -359,7 +359,7 @@ class ProjectController extends Controller
             $request->validate([
                 'name' => 'required|string|max:255',
                 'description' => 'nullable|string',
-                // 'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+                'photo' => 'nullable|image|mimes:jpeg,png,jpg,webp,gif|max:2048',
                 'status' => 'required|in:active,completed,on_hold,cancelled',
                 'start_date' => 'nullable|date',
                 'end_date' => 'nullable|date|after:start_date',
@@ -368,14 +368,6 @@ class ProjectController extends Controller
             $data = $request->only(['name', 'description', 'status', 'start_date', 'end_date']);
             $data['is_updated'] = true;
             $data['last_activity'] = now();
-
-            // Debug: Log what we're receiving
-            Log::info('Update request data:', [
-                'all' => $request->all(),
-                'hasFile' => $request->hasFile('photo'),
-                'file' => $request->file('photo'),
-                'data' => $data,
-            ]);
 
             // Only update photo if a new one is uploaded
             if ($request->hasFile('photo')) {
@@ -871,7 +863,7 @@ class ProjectController extends Controller
     public function uploadAttachment(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|max:10240', // 10MB max
+            'file' => 'required|file|max:10240|mimes:jpeg,jpg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,zip,mp3,mp4,webm',
             'project_id' => 'required|exists:projects,id',
         ]);
 

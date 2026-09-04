@@ -105,7 +105,6 @@ class AttendanceCheckInService
     }
 
     /**
-     * @param  array{passed?: bool, confidence?: float|null, method?: string}|null  $verificationResult
      * @return array{
      *     slot: string,
      *     status: string,
@@ -116,7 +115,7 @@ class AttendanceCheckInService
         User $user,
         int $formationId,
         string $attendanceDay,
-        ?array $verificationResult = null,
+        UploadedFile $livePhoto,
     ): array {
         $this->assertEnrolled($user, $formationId);
 
@@ -132,7 +131,7 @@ class AttendanceCheckInService
             $this->failJson('No attendance to mark right now.', Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $this->assertFaceVerified($user, $livePhoto);
+        $faceMethod = $this->assertFaceVerified($user, $livePhoto);
 
         $attendance = Attendance::query()
             ->where('formation_id', $formationId)
@@ -183,14 +182,12 @@ class AttendanceCheckInService
             $user->name ?? 'Student',
         );
 
-        if ($verificationResult !== null) {
-            try {
-                $row->face_verification_method = $verificationResult['method'] ?? null;
-                $row->face_match_confidence = $verificationResult['confidence'] ?? null;
-                $row->save();
-            } catch (\Throwable) {
-                // Audit columns must never block attendance.
-            }
+        try {
+            $row->face_verification_method = $faceMethod;
+            $row->face_match_confidence = null;
+            $row->save();
+        } catch (\Throwable) {
+            // Audit columns must never block attendance.
         }
 
         return [
@@ -235,12 +232,58 @@ class AttendanceCheckInService
         }
     }
 
-    private function assertFaceVerified(User $user, UploadedFile $livePhoto): void
+    private function assertFaceVerified(User $user, UploadedFile $livePhoto): string
     {
+        // #region agent log
+        $debugLog = function (string $hypothesisId, string $message, array $data = []): void {
+            $payload = [
+                'sessionId' => '138535',
+                'runId' => 'post-fix',
+                'hypothesisId' => $hypothesisId,
+                'location' => 'AttendanceCheckInService::assertFaceVerified',
+                'message' => $message,
+                'data' => $data,
+                'timestamp' => (int) (microtime(true) * 1000),
+            ];
+            @file_put_contents(
+                'C:/Users/Ayman Boujjar/Desktop/lionsgeek-mobile/debug-138535.log',
+                json_encode($payload).PHP_EOL,
+                FILE_APPEND
+            );
+        };
+        // #endregion
+
+        if ($this->userMayBypassFaceVerification($user)) {
+            // #region agent log
+            $debugLog('A', 'staff bypass', ['userId' => $user->id]);
+            // #endregion
+
+            return 'staff-bypass';
+        }
+
+        if (! config('face.required', true)) {
+            // #region agent log
+            $debugLog('A', 'face verification disabled via config', [
+                'userId' => $user->id,
+                'hasLivePhoto' => $livePhoto->isValid(),
+            ]);
+            // #endregion
+
+            return 'face-disabled';
+        }
+
         $result = $this->faceVerifier->verify($user, $livePhoto);
 
+        // #region agent log
+        $debugLog('A', 'face verifier result', [
+            'userId' => $user->id,
+            'result' => $result->value,
+            'bound' => $this->faceVerifier::class,
+        ]);
+        // #endregion
+
         if ($result->allowsCheckIn()) {
-            return;
+            return 'rekognition';
         }
 
         if ($result === FaceVerificationResult::Rejected) {
@@ -248,6 +291,19 @@ class AttendanceCheckInService
         }
 
         $this->failJson('Unable to verify your identity.', Response::HTTP_SERVICE_UNAVAILABLE);
+    }
+
+    private function userMayBypassFaceVerification(User $user): bool
+    {
+        $roles = $user->normalizedRoles();
+
+        return (bool) array_intersect($roles, [
+            'admin',
+            'super_admin',
+            'moderateur',
+            'coach',
+            'studio_responsable',
+        ]);
     }
 
     private function failJson(string $message, int $status): never

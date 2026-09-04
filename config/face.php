@@ -17,7 +17,12 @@ return [
     |
     | Do not use users.image as the biometric reference.
     |
+    | FACE_VERIFICATION_REQUIRED=false skips Rekognition (local/dev without AWS).
+    | Keep true in production.
+    |
     */
+
+    'required' => filter_var(env('FACE_VERIFICATION_REQUIRED', true), FILTER_VALIDATE_BOOLEAN),
 
     'min_similarity' => env('FACE_VERIFICATION_MIN_SIMILARITY', 90),
 

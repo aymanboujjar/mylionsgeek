@@ -37,6 +37,42 @@ class LinkedInController extends Controller
         return rtrim((string) config('app.url'), '/') . '/auth/linkedin/callback';
     }
 
+    /**
+     * Only same-app relative paths (or same-origin absolute URLs reduced to a path).
+     * Blocks open redirects like https://evil.example and //evil.example.
+     */
+    private function safeReturnTo(?string $candidate): string
+    {
+        $home = '/';
+
+        if (! is_string($candidate)) {
+            return $home;
+        }
+
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            return $home;
+        }
+
+        if (str_contains($candidate, "\0") || str_contains($candidate, '\\')) {
+            return $home;
+        }
+
+        if (str_starts_with($candidate, '/') && ! str_starts_with($candidate, '//')) {
+            return $candidate;
+        }
+
+        $appUrl = rtrim((string) config('app.url'), '/');
+        if ($appUrl !== '' && str_starts_with($candidate, $appUrl.'/')) {
+            $path = substr($candidate, strlen($appUrl));
+            if (is_string($path) && str_starts_with($path, '/') && ! str_starts_with($path, '//')) {
+                return $path;
+            }
+        }
+
+        return $home;
+    }
+
     public function redirect(Request $request): RedirectResponse
     {
         $user = $request->user();
@@ -53,7 +89,10 @@ class LinkedInController extends Controller
 
         $state = Str::random(40);
         $request->session()->put('linkedin_oauth_state', $state);
-        $request->session()->put('linkedin_oauth_return_to', $request->input('return_to', url()->previous()));
+        $request->session()->put(
+            'linkedin_oauth_return_to',
+            $this->safeReturnTo($request->input('return_to', url()->previous()))
+        );
 
         $scopes = [
             'r_liteprofile',
@@ -79,7 +118,9 @@ class LinkedInController extends Controller
         }
 
         $expectedState = (string) $request->session()->pull('linkedin_oauth_state', '');
-        $returnTo = (string) $request->session()->pull('linkedin_oauth_return_to', route('home'));
+        $returnTo = $this->safeReturnTo(
+            (string) $request->session()->pull('linkedin_oauth_return_to', '/')
+        );
 
         $state = (string) $request->query('state', '');
         if ($expectedState === '' || ! hash_equals($expectedState, $state)) {

@@ -92,7 +92,7 @@ test('H3 peer student profile hides email and resume_url', function () {
         'email' => 'h3.peer@example.com',
         'resume' => 'peer-cv.pdf',
     ]);
-    Storage::disk('public')->put('resumes/peer-cv.pdf', 'fake-pdf');
+    Storage::disk('documents')->put('resumes/peer-cv.pdf', 'fake-pdf');
 
     $this->actingAs($viewer)
         ->get('/students/'.$peer->id)
@@ -109,7 +109,7 @@ test('H3 owner still receives email and gated resume_view_url', function () {
         'email' => 'h3.owner@example.com',
         'resume' => 'owner-cv.pdf',
     ]);
-    Storage::disk('public')->put('resumes/owner-cv.pdf', 'fake-pdf');
+    Storage::disk('documents')->put('resumes/owner-cv.pdf', 'fake-pdf');
 
     $this->actingAs($owner)
         ->get('/students/'.$owner->id)

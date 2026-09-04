@@ -301,7 +301,8 @@ class User extends Authenticatable
         return $flag === 1 || $flag === true || $flag === '1';
     }
 
-    public const RESUME_DISK = 'public';
+    /** Private disk — never serve resumes via /storage symlink. */
+    public const RESUME_DISK = 'documents';
 
     public const RESUME_DIRECTORY = 'resumes';
 
@@ -338,7 +339,7 @@ class User extends Authenticatable
         self::PROGRAM_STATUS_LEFT => 'Left',
     ];
 
-    /** Relative path on the public disk, e.g. resumes/abc.pdf */
+    /** Relative path on the private disk, e.g. resumes/abc.pdf */
     public function resumeStoragePath(): ?string
     {
         $name = $this->resume;
@@ -348,28 +349,15 @@ class User extends Authenticatable
 
         $basename = basename($name);
 
-        return $basename !== '' ? self::RESUME_DIRECTORY . '/' . $basename : null;
+        return $basename !== '' ? self::RESUME_DIRECTORY.'/'.$basename : null;
     }
 
+    /**
+     * Resumes are private — never expose a public /storage URL.
+     * Clients must use resume_view_url (gated) instead.
+     */
     public function resumePublicUrl(): ?string
     {
-        $relative = $this->resumeStoragePath();
-        if (! $relative) {
-            return null;
-        }
-
-        if (Storage::disk(self::RESUME_DISK)->exists($relative)) {
-            return asset('storage/' . ltrim($relative, '/'));
-        }
-
-        $basename = basename($relative);
-        foreach (['storage/resumes', 'storage/resume'] as $legacyDir) {
-            $legacy = public_path($legacyDir . '/' . $basename);
-            if (is_file($legacy)) {
-                return asset($legacyDir . '/' . $basename);
-            }
-        }
-
         return null;
     }
 
@@ -380,13 +368,18 @@ class User extends Authenticatable
             return Storage::disk(self::RESUME_DISK)->path($relative);
         }
 
+        // Legacy public-disk copies until resumes:migrate-private has been run.
+        if ($relative && Storage::disk('public')->exists($relative)) {
+            return Storage::disk('public')->path($relative);
+        }
+
         $basename = basename((string) $this->resume);
         if ($basename === '') {
             return null;
         }
 
         foreach (['storage/resumes', 'storage/resume'] as $legacyDir) {
-            $legacy = public_path($legacyDir . '/' . $basename);
+            $legacy = public_path($legacyDir.'/'.$basename);
             if (is_file($legacy)) {
                 return $legacy;
             }
@@ -406,27 +399,14 @@ class User extends Authenticatable
 
     public function readStoredResumeContents(): ?string
     {
-        $relative = $this->resumeStoragePath();
-        if (! $relative) {
+        $path = $this->resolveResumeAbsolutePath();
+        if (! $path || ! is_readable($path)) {
             return null;
         }
 
-        $disk = Storage::disk(self::RESUME_DISK);
-        if ($disk->exists($relative)) {
-            return $disk->get($relative);
-        }
+        $contents = file_get_contents($path);
 
-        $basename = basename($relative);
-        foreach (['storage/resumes', 'storage/resume'] as $legacyDir) {
-            $legacy = public_path($legacyDir . '/' . $basename);
-            if (is_file($legacy) && is_readable($legacy)) {
-                $contents = file_get_contents($legacy);
-
-                return $contents !== false ? $contents : null;
-            }
-        }
-
-        return null;
+        return $contents !== false ? $contents : null;
     }
 
     public function deleteStoredResume(): void
@@ -434,6 +414,7 @@ class User extends Authenticatable
         $relative = $this->resumeStoragePath();
         if ($relative) {
             Storage::disk(self::RESUME_DISK)->delete($relative);
+            Storage::disk('public')->delete($relative);
         }
 
         $basename = basename((string) $this->resume);
@@ -442,7 +423,7 @@ class User extends Authenticatable
         }
 
         foreach (['storage/resumes', 'storage/resume'] as $legacyDir) {
-            $legacy = public_path($legacyDir . '/' . $basename);
+            $legacy = public_path($legacyDir.'/'.$basename);
             if (is_file($legacy)) {
                 @unlink($legacy);
             }
