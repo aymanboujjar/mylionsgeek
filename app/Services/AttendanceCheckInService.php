@@ -234,53 +234,15 @@ class AttendanceCheckInService
 
     private function assertFaceVerified(User $user, UploadedFile $livePhoto): string
     {
-        // #region agent log
-        $debugLog = function (string $hypothesisId, string $message, array $data = []): void {
-            $payload = [
-                'sessionId' => '138535',
-                'runId' => 'post-fix',
-                'hypothesisId' => $hypothesisId,
-                'location' => 'AttendanceCheckInService::assertFaceVerified',
-                'message' => $message,
-                'data' => $data,
-                'timestamp' => (int) (microtime(true) * 1000),
-            ];
-            @file_put_contents(
-                'C:/Users/Ayman Boujjar/Desktop/lionsgeek-mobile/debug-138535.log',
-                json_encode($payload).PHP_EOL,
-                FILE_APPEND
-            );
-        };
-        // #endregion
-
         if ($this->userMayBypassFaceVerification($user)) {
-            // #region agent log
-            $debugLog('A', 'staff bypass', ['userId' => $user->id]);
-            // #endregion
-
             return 'staff-bypass';
         }
 
         if (! config('face.required', true)) {
-            // #region agent log
-            $debugLog('A', 'face verification disabled via config', [
-                'userId' => $user->id,
-                'hasLivePhoto' => $livePhoto->isValid(),
-            ]);
-            // #endregion
-
             return 'face-disabled';
         }
 
         $result = $this->faceVerifier->verify($user, $livePhoto);
-
-        // #region agent log
-        $debugLog('A', 'face verifier result', [
-            'userId' => $user->id,
-            'result' => $result->value,
-            'bound' => $this->faceVerifier::class,
-        ]);
-        // #endregion
 
         if ($result->allowsCheckIn()) {
             return 'rekognition';
