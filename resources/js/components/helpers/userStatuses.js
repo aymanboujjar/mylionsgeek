@@ -1,13 +1,7 @@
-/**
- * Life situation only. 'Certified' and 'Left' used to live here too, but both
- * describe a position in the LionsGEEK program, not what someone is doing with
- * their life — they are recorded in `program_status` as 'laureate' and 'left'.
- *
- * Users still holding a legacy value keep it visible via resolveStatusOptions().
- */
+/** Life / professional status — separate from program_status (training lifecycle). */
 export const ADMIN_USER_STATUSES = ['Working', 'Studying', 'Internship', 'Unemployed', 'Freelancing'];
 
-/** Statuses a student may choose after training (Studying is excluded). */
+/** Students may update their life status after training (Studying is set on create). */
 export const STUDENT_EDITABLE_STATUSES = ['Working', 'Internship', 'Unemployed', 'Freelancing'];
 
 // Match a stored status string to one of the select option values (case-insensitive).

@@ -29,7 +29,6 @@ class OrganisationCompanyController extends Controller
                 'contact_name' => $organization->contact_name,
                 'sector' => $organization->sector,
                 'location' => $organization->location,
-                'linkedin_url' => $organization->linkedin_url,
                 'phone' => $organization->phone,
                 'onboarding_completed' => $organization->hasCompletedOnboarding(),
                 'onboarding_completed_at' => $organization->onboarding_completed_at?->toIso8601String(),

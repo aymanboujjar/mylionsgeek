@@ -22,7 +22,6 @@ const Footer = () => {
                         <div className="flex gap-6">
                             {[
                                 { name: 'Instagram', href: 'https://www.instagram.com/lions_geek/' },
-                                { name: 'LinkedIn', href: 'https://www.linkedin.com/company/lionsgeek/posts/?feedView=all' },
                                 { name: 'YouTube', href: 'https://www.youtube.com/@lionsgeek_MA' },
                             ].map((link) => (
                                 <a

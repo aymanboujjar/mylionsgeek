@@ -3,13 +3,21 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useInitials } from '@/hooks/use-initials';
 import { router, usePage } from '@inertiajs/react';
 import { Briefcase, ExternalLink, Facebook, Github, ImagePlus, Instagram, Linkedin, MessageCircle, Send, Trash, Twitter, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { normalizeStatusForSelect, resolveStatusOptions } from '@/components/helpers/userStatuses';
-import { GENDER_OPTIONS, HANDICAP_OPTIONS, handicapSelectValue, PROGRAM_STATUS_OPTIONS } from '@/components/helpers/userDemographics';
+import {
+    GENDER_OPTIONS,
+    HANDICAP_OPTIONS,
+    handicapSelectValue,
+    PROGRAM_STATUS,
+    PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS,
+    canAssignProgramStatusLeft,
+    canViewHealthData,
+} from '@/components/helpers/userDemographics';
 import Rolegard from '../../../../components/rolegard';
 import RolesMultiSelect from './RolesMultiSelect';
 
@@ -60,6 +68,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
     const isStudying = editedUser?.status?.toLowerCase() === 'studying';
     const showStatusField = canEditOthers || !isEditingSelf || !isStudying;
 
+    const canAssignLeft = canAssignProgramStatusLeft(userRolesLower);
+    const canEditHealthData = canViewHealthData(userRolesLower);
+
     const statusOptions = useMemo(
         () =>
             resolveStatusOptions({
@@ -83,7 +94,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         cin: editedUser?.cin ?? '',
         gender: editedUser?.gender || 'none',
         has_handicap: handicapSelectValue(editedUser?.has_handicap),
-        program_status: editedUser?.program_status || 'none',
+        program_status: editedUser?.program_status || PROGRAM_STATUS.ACTIVE,
         speciality: editedUser?.speciality ?? '',
         image: editedUser?.image || null,
         resumeFile: null,
@@ -130,7 +141,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                 cin: editedUser.cin ?? '',
                 gender: editedUser.gender || 'none',
                 has_handicap: handicapSelectValue(editedUser.has_handicap),
-                program_status: editedUser.program_status || 'none',
+                program_status: editedUser.program_status || PROGRAM_STATUS.ACTIVE,
                 speciality: editedUser.speciality ?? '',
                 image: editedUser?.image || null,
                 resumeFile: null,
@@ -230,10 +241,10 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
 
         if (canEditOthers) {
             form.append('gender', formData.gender === 'none' ? '' : formData.gender);
-            if (canGrantStaffRoles || Object.prototype.hasOwnProperty.call(editedUser, 'has_handicap')) {
+            if (canEditHealthData) {
                 form.append('has_handicap', formData.has_handicap === 'none' ? '' : formData.has_handicap);
             }
-            form.append('program_status', formData.program_status === 'none' ? '' : formData.program_status);
+            form.append('program_status', formData.program_status === 'all' ? '' : formData.program_status);
         }
 
         form.append('access_studio', formData.access_studio === 'Yes' ? 1 : 0);
@@ -355,12 +366,20 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                                     <SelectValue placeholder="Select program status" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="none">Not set</SelectItem>
-                                    {PROGRAM_STATUS_OPTIONS.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                            {option.label}
-                                        </SelectItem>
-                                    ))}
+                                    <SelectItem value={PROGRAM_STATUS.ACTIVE}>Active</SelectItem>
+                                    {(canAssignLeft ||
+                                        formData.program_status === PROGRAM_STATUS.LEFT ||
+                                        editedUser?.program_status === PROGRAM_STATUS.LEFT) && (
+                                            <SelectItem value={PROGRAM_STATUS.LEFT}>Left</SelectItem>
+                                        )}
+                                    <SelectGroup>
+                                        <SelectLabel>Certificate &amp; Not Certificate</SelectLabel>
+                                        {PROGRAM_STATUS_CERTIFICATE_OUTCOME_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectGroup>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -388,7 +407,7 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                             <Input id="cin" value={formData.cin || ''} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} />
                         </div>
                     )}
-                    {canGrantStaffRoles && (
+                    {canEditHealthData && (
                         <div className="col-span-1">
                             <Label>Handicap</Label>
                             <Select value={formData.has_handicap} onValueChange={(v) => setFormData({ ...formData, has_handicap: v })}>
@@ -455,6 +474,96 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                         {formData.resumeFile && <p className="mt-1 text-sm text-beta/70 dark:text-light/70">Selected: {formData.resumeFile.name}</p>}
                     </div>
 
+
+                    {/* Left Column - Training */}
+                    {isAdminOrStudioResponsable && (
+                        <div className="md:col-span-1 lg:col-span-1 col-span-2">
+                            <Label>Training</Label>
+                            <Select
+                                value={formData.formation_id ? String(formData.formation_id) : ''}
+                                onValueChange={(v) => setFormData({ ...formData, formation_id: Number(v) })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select training" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {trainings.map((t) => (
+                                        <SelectItem key={t.id} value={String(t.id)}>
+                                            {t.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    {/* Left Column - Access Studio */}
+                    {isAdminOrStudioResponsable && (
+                        <div className="col-span-1">
+                            <Label htmlFor="access-studio">Access Studio</Label>
+                            <Select
+                                id="access-studio"
+                                value={formData.access_studio}
+                                onValueChange={(v) => setFormData({ ...formData, access_studio: v })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Access Studio" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={'Yes'}>Yes</SelectItem>
+                                    <SelectItem value={'No'}>No</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    {/* Right Column - Access Cowork */}
+                    {isAdminOrStudioResponsable && (
+                        <div className="col-span-1">
+                            <Label htmlFor="access-cowork">Access Cowork</Label>
+                            <Select
+                                id="access-cowork"
+                                value={formData.access_cowork}
+                                onValueChange={(v) => setFormData({ ...formData, access_cowork: v })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Access Cowork" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={'Yes'}>Yes</SelectItem>
+                                    <SelectItem value={'No'}>No</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    {isAdminOrStudioResponsable && (
+                        <div className="col-span-1">
+                            <Label htmlFor="access-scan">Access Scan</Label>
+                            <Select
+                                id="access-scan"
+                                value={formData.access_scan}
+                                onValueChange={(v) => setFormData({ ...formData, access_scan: v })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Access Scan" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={'Yes'}>Yes</SelectItem>
+                                    <SelectItem value={'No'}>No</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <p className="mt-1 text-xs text-neutral-500">
+                                Mobile Scan tab (events and info sessions)
+                            </p>
+                        </div>
+                    )}
+                    {/* Right Column - Roles */}
+                    <Rolegard authorized={'admin'}>
+                        {isAdminOrStudioResponsable && (
+                            <div className="col-span-1">
+                                <Label htmlFor="roles">Roles</Label>
+                                <RolesMultiSelect roles={formData.roles} onChange={(newRoles) => setFormData({ ...formData, roles: newRoles })} />
+                            </div>
+                        )}
+                    </Rolegard>
                     {/* Socials Section */}
                     {canManageSocials && (
                         <div className="col-span-1 md:col-span-2">
@@ -544,99 +653,6 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                                     })
                                 )}
                             </div>
-                        </div>
-                    )}
-                    {/* Right Column - Roles */}
-                    <Rolegard authorized={'admin'}>
-                        {isAdminOrStudioResponsable && (
-                            <div className="col-span-1">
-                                <Label htmlFor="roles">Roles</Label>
-                                <RolesMultiSelect
-                                    roles={formData.roles}
-                                    onChange={(newRoles) => setFormData({ ...formData, roles: newRoles })}
-                                    canGrantStaffRoles={canGrantStaffRoles}
-                                />
-                            </div>
-                        )}
-                    </Rolegard>
-                    {/* Left Column - Access Studio */}
-                    {isAdminOrStudioResponsable && (
-                        <div className="col-span-1">
-                            <Label htmlFor="access-studio">Access Studio</Label>
-                            <Select
-                                id="access-studio"
-                                value={formData.access_studio}
-                                onValueChange={(v) => setFormData({ ...formData, access_studio: v })}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Access Studio" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value={'Yes'}>Yes</SelectItem>
-                                    <SelectItem value={'No'}>No</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    )}
-                    {/* Right Column - Access Cowork */}
-                    {isAdminOrStudioResponsable && (
-                        <div className="col-span-1">
-                            <Label htmlFor="access-cowork">Access Cowork</Label>
-                            <Select
-                                id="access-cowork"
-                                value={formData.access_cowork}
-                                onValueChange={(v) => setFormData({ ...formData, access_cowork: v })}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Access Cowork" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value={'Yes'}>Yes</SelectItem>
-                                    <SelectItem value={'No'}>No</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    )}
-                    {isAdminOrStudioResponsable && (
-                        <div className="col-span-1">
-                            <Label htmlFor="access-scan">Access Scan</Label>
-                            <Select
-                                id="access-scan"
-                                value={formData.access_scan}
-                                onValueChange={(v) => setFormData({ ...formData, access_scan: v })}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Access Scan" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value={'Yes'}>Yes</SelectItem>
-                                    <SelectItem value={'No'}>No</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <p className="mt-1 text-xs text-neutral-500">
-                                Mobile Scan tab (events and info sessions)
-                            </p>
-                        </div>
-                    )}
-                    {/* Left Column - Training */}
-                    {isAdminOrStudioResponsable && (
-                        <div className="md:col-span-1 lg:col-span-1 col-span-2">
-                            <Label>Training</Label>
-                            <Select
-                                value={formData.formation_id ? String(formData.formation_id) : ''}
-                                onValueChange={(v) => setFormData({ ...formData, formation_id: Number(v) })}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select training" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {trainings.map((t) => (
-                                        <SelectItem key={t.id} value={String(t.id)}>
-                                            {t.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
                         </div>
                     )}
 

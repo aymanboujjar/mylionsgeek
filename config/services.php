@@ -50,12 +50,6 @@ return [
         'app_certificate' => env('AGORA_APP_CERTIFICATE'),
     ],
 
-    'linkedin' => [
-        'client_id' => env('LINKEDIN_CLIENT_ID'),
-        'client_secret' => env('LINKEDIN_CLIENT_SECRET'),
-        'redirect' => env('LINKEDIN_REDIRECT_URI'),
-    ],
-
     'github' => [
         'webhook_secret' => env('GITHUB_WEBHOOK_SECRET'),
     ],

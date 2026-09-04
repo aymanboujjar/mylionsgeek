@@ -7,8 +7,8 @@ export default function TrainingStatsCards({ students = [] }) {
         const total = students.length;
         const male = students.filter((s) => s.gender === 'male').length;
         const female = students.filter((s) => s.gender === 'female').length;
-        const certified = students.filter((s) => s.program_status === PROGRAM_STATUS.LAUREATE).length;
-        const notCertified = total - certified;
+        const certified = students.filter((s) => s.program_status === PROGRAM_STATUS.CERTIFIED).length;
+        const notCertified = students.filter((s) => s.program_status === PROGRAM_STATUS.NOT_CERTIFIED).length;
 
         return { total, male, female, certified, notCertified };
     }, [students]);

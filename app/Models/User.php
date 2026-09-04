@@ -310,32 +310,32 @@ class User extends Authenticatable
      * LionsGEEK program lifecycle. Independent of the `status` column, which tracks
      * life situation (Working, Studying…) and must never be derived from these.
      *
-     *   active    — currently following the training
-     *   laureate  — finished and received a certificate
-     *   completed — finished but received no certificate
-     *   left      — did not finish; set by hand by an admin or coach
+     *   active         — currently following the training
+     *   certified      — finished and received a certificate
+     *   not_certified  — finished but received no certificate
+     *   left           — did not finish; set by hand by an admin or coach
      */
     public const PROGRAM_STATUS_ACTIVE = 'active';
 
-    public const PROGRAM_STATUS_LAUREATE = 'laureate';
+    public const PROGRAM_STATUS_CERTIFIED = 'certified';
 
-    public const PROGRAM_STATUS_COMPLETED = 'completed';
+    public const PROGRAM_STATUS_NOT_CERTIFIED = 'not_certified';
 
     public const PROGRAM_STATUS_LEFT = 'left';
 
     /** @var list<string> */
     public const PROGRAM_STATUSES = [
         self::PROGRAM_STATUS_ACTIVE,
-        self::PROGRAM_STATUS_LAUREATE,
-        self::PROGRAM_STATUS_COMPLETED,
+        self::PROGRAM_STATUS_CERTIFIED,
+        self::PROGRAM_STATUS_NOT_CERTIFIED,
         self::PROGRAM_STATUS_LEFT,
     ];
 
     /** Human-readable labels, mirroring resources/js/components/helpers/userDemographics.js */
     public const PROGRAM_STATUS_LABELS = [
         self::PROGRAM_STATUS_ACTIVE => 'Active',
-        self::PROGRAM_STATUS_LAUREATE => 'Laureate',
-        self::PROGRAM_STATUS_COMPLETED => 'Completed',
+        self::PROGRAM_STATUS_CERTIFIED => 'Certificate',
+        self::PROGRAM_STATUS_NOT_CERTIFIED => 'Not Certificate',
         self::PROGRAM_STATUS_LEFT => 'Left',
     ];
 

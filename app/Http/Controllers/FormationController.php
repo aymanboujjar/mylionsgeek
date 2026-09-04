@@ -100,8 +100,13 @@ class FormationController extends Controller
         // Attach the discipline score to every enrolled user so the frontend
         // can display the attendance percentage without extra API calls.
         $disciplineService = new \App\Services\DisciplineService;
-        $training->users->each(function (User $user) use ($disciplineService) {
+        $canViewHealthData = $this->actorCanViewHealthData(Auth::user());
+        $training->users->each(function (User $user) use ($disciplineService, $canViewHealthData) {
             $user->discipline = $disciplineService->calculateDisciplineScore($user);
+
+            if (! $canViewHealthData) {
+                $user->makeHidden(['has_handicap']);
+            }
         });
 
         return inertia('admin/training/[id]', [
@@ -159,9 +164,8 @@ class FormationController extends Controller
         $user = User::find($validated['student_id']);
         if ($user) {
             $user->formation_id = $training->id;
+            $programStatusService->applyEnrollmentStatus($user);
             $user->save();
-
-            $programStatusService->markActiveOnEnrollment($user);
         }
 
         return back()->with('success', 'Student added');
@@ -465,16 +469,29 @@ class FormationController extends Controller
         return back()->with('success', 'Formation deleted successfully!');
     }
 
-    // Bulk update users roles and status
-    public function bulkUpdateUsers(Formation $training, Request $request)
+    // Bulk update users roles, program status, and handicap
+    public function bulkUpdateUsers(Formation $training, Request $request, ProgramStatusService $programStatusService)
     {
         $validated = $request->validate([
             'user_ids' => 'required|array|min:1',
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
-            'roles.*' => 'nullable|string|in:'.implode(',', User::ASSIGNABLE_ROLES),
-            'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing',
+            'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
+            'program_status' => 'nullable|in:active,certified,not_certified,left',
+            'has_handicap' => 'nullable|in:0,1',
         ]);
+
+        $actor = Auth::user();
+        if ($request->exists('program_status')) {
+            $programStatus = $request->input('program_status');
+            if ($programStatus !== null && $programStatus !== '') {
+                $programStatusService->assertCanAssignLeft($actor, $programStatus, $training);
+            }
+        }
+
+        if ($request->exists('has_handicap') && ! $this->actorCanViewHealthData($actor)) {
+            abort(403, 'Only admins can update handicap data.');
+        }
 
         $users = User::whereIn('id', $validated['user_ids'])
             ->where('formation_id', $training->id)
@@ -498,8 +515,18 @@ class FormationController extends Controller
                 }, array_filter($validated['roles'])));
             }
 
-            if ($request->has('status') && ! empty($validated['status'])) {
-                $updateData['status'] = $validated['status'];
+            if ($request->exists('program_status')) {
+                $programStatus = $request->input('program_status');
+                $updateData['program_status'] = ($programStatus === null || $programStatus === '') ? null : $programStatus;
+            }
+
+            if ($request->exists('has_handicap')) {
+                $handicap = $request->input('has_handicap');
+                if ($handicap === null || $handicap === '') {
+                    $updateData['has_handicap'] = null;
+                } else {
+                    $updateData['has_handicap'] = (int) $handicap === 1;
+                }
             }
 
             if (! empty($updateData)) {
@@ -624,9 +651,19 @@ class FormationController extends Controller
         $savedCount = 0;
         $skipped = $leftWarnings;
         $usedZipNames = [];
-        $successfulRecipients = collect();
+        $certifiedUserIds = [];
 
         foreach ($users as $user) {
+            if ($programStatusService->isLeft($user->program_status, $user->status)) {
+                $skipped[] = [
+                    'id' => $user->id,
+                    'name' => (string) $user->name,
+                    'reason' => 'Left the program — cannot be certified.',
+                ];
+
+                continue;
+            }
+
             $track = $isGeekLab
                 ? $trackResolver->resolveForTraining($user->field ?? null, $trainingName)
                 : $trackResolver->resolve($user->field ?? null);
@@ -671,9 +708,9 @@ class FormationController extends Controller
                 $this->storeCertificatePdf($user, $pdfStoragePath, $pdfBytes);
 
                 $certFields = [
+                    'program_status' => ProgramStatusService::CERTIFIED,
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
-                    'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
                     'certificate_pdf_path' => $pdfStoragePath,
                 ];
                 if ($isGeekLab && $certificateCode !== null) {
@@ -684,7 +721,7 @@ class FormationController extends Controller
 
                 $zip->addFromString($zipEntryName, $pdfBytes);
                 $savedCount++;
-                $successfulRecipients->push($user);
+                $certifiedUserIds[] = (int) $user->id;
             } catch (\Throwable $e) {
                 Log::error('Failed to generate certificate', [
                     'training_id' => $training->id,
@@ -713,12 +750,7 @@ class FormationController extends Controller
             );
         }
 
-        $this->recordCertificatePrint(
-            $training,
-            $successfulRecipients,
-            $users->pluck('id')->all(),
-            $programStatusService,
-        );
+        $this->recordCertificatePrint($training, $certifiedUserIds, $programStatusService);
 
         return response()
             ->download($tmpZipPath, 'certificats-'.$training->id.'.zip', [
@@ -729,7 +761,7 @@ class FormationController extends Controller
     }
 
     /**
-     * GeekLab: generate PDFs, store them, mark students as laureates, queue email jobs.
+     * GeekLab: generate PDFs, store them, update program_status, queue email jobs.
      */
     public function emailGeekLabCertificates(
         Formation $training,
@@ -782,9 +814,19 @@ class FormationController extends Controller
         $queuedCount = 0;
         $skipped = $leftWarnings;
         $trainingName = (string) $training->name;
-        $queuedRecipients = collect();
+        $certifiedUserIds = [];
 
         foreach ($users as $user) {
+            if ($programStatusService->isLeft($user->program_status, $user->status)) {
+                $skipped[] = [
+                    'id' => $user->id,
+                    'name' => (string) $user->name,
+                    'reason' => 'Left the program — cannot be certified.',
+                ];
+
+                continue;
+            }
+
             $track = $trackResolver->resolveForTraining($user->field ?? null, $trainingName);
             if ($track === null) {
                 $skipped[] = [
@@ -833,17 +875,19 @@ class FormationController extends Controller
                 $this->storeCertificatePdf($user, $pdfStoragePath, $pdfBytes);
 
                 // Certify immediately when PDF is stored and the email job is queued.
-                $user->forceFill([
+                $certFields = [
+                    'program_status' => ProgramStatusService::CERTIFIED,
                     'certified_at' => $issuedCarbon,
                     'certified_training_id' => (int) $training->id,
-                    'certificate_share_token' => $user->certificate_share_token ?: Str::random(48),
                     'certificate_pdf_path' => $pdfStoragePath,
                     'certificate_code' => $certificateCode,
-                ])->save();
+                ];
+
+                $user->forceFill($certFields)->save();
 
                 SendGeekLabCertificateEmail::dispatch($user, $pdfStoragePath, $trainingName);
                 $queuedCount++;
-                $queuedRecipients->push($user);
+                $certifiedUserIds[] = (int) $user->id;
             } catch (\Throwable $e) {
                 Log::error('Failed to generate/queue GeekLab certificate', [
                     'training_id' => $training->id,
@@ -868,12 +912,7 @@ class FormationController extends Controller
             );
         }
 
-        $this->recordCertificatePrint(
-            $training,
-            $queuedRecipients,
-            $users->pluck('id')->all(),
-            $programStatusService,
-        );
+        $this->recordCertificatePrint($training, $certifiedUserIds, $programStatusService);
 
         return response()->json([
             'success' => true,
@@ -884,41 +923,35 @@ class FormationController extends Controller
     }
 
     /**
-     * Advance the program lifecycle after a successful certificate print.
+     * Advance the program lifecycle after at least one certificate was generated.
      *
-     * Only students who actually received a certificate become laureates. Every
-     * eligible selection is still excluded from the completed sweep, including
-     * students whose PDF failed — they stay active until a later print succeeds.
+     * Certified recipients and the not_certified sweep share one transaction so a
+     * cohort is never left half-updated. Both writes are logged for audit.
      *
-     * Only runs once at least one certificate was generated, so a request that
-     * produced nothing leaves the lifecycle untouched. Both writes share a
-     * transaction so a cohort is never left half-updated.
-     *
-     * @param  Collection<int, User>  $recipients  Students who received a certificate.
-     * @param  list<int>  $selectedEligibleIds  All selected eligible IDs, for completion exclusion.
+     * @param  list<int>  $certifiedUserIds  Students who successfully received a certificate.
      */
     private function recordCertificatePrint(
         Formation $training,
-        Collection $recipients,
-        array $selectedEligibleIds,
+        array $certifiedUserIds,
         ProgramStatusService $programStatusService,
     ): void {
-        $laureateIds = $recipients->pluck('id')->all();
+        $certifiedUserIds = array_values(array_unique(array_map('intval', $certifiedUserIds)));
 
-        [$laureates, $completed] = DB::transaction(fn () => [
-            $programStatusService->markLaureates($laureateIds),
-            $programStatusService->markUnselectedAsCompleted((int) $training->id, $selectedEligibleIds),
+        if ($certifiedUserIds === []) {
+            return;
+        }
+
+        [$certified, $notCertified] = DB::transaction(fn () => [
+            $programStatusService->markCertified($certifiedUserIds),
+            $programStatusService->markUnselectedActiveStudentsAsNotCertified($training, $certifiedUserIds),
         ]);
 
-        // Bulk lifecycle writes are hard to reconstruct after the fact; log enough
-        // to answer "who changed, and who did it" if a print was a mistake.
         Log::info('Certificate print advanced program status', [
             'training_id' => $training->id,
             'actor_id' => Auth::id(),
-            'laureates' => $laureates,
-            'laureate_ids' => $laureateIds,
-            'selected_eligible_ids' => $selectedEligibleIds,
-            'completed' => $completed,
+            'certified' => $certified,
+            'certified_user_ids' => $certifiedUserIds,
+            'not_certified' => $notCertified,
         ]);
     }
 
@@ -993,5 +1026,16 @@ class FormationController extends Controller
         }
 
         return back()->with('error', $message);
+    }
+
+    private function actorCanViewHealthData(?User $actor): bool
+    {
+        if (! $actor) {
+            return false;
+        }
+
+        $roles = is_array($actor->role) ? $actor->role : array_filter([(string) $actor->role]);
+
+        return count(array_intersect($roles, ['admin', 'super_admin'])) > 0;
     }
 }

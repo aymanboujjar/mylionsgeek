@@ -14,7 +14,6 @@ class Organization extends Model
         'contact_name',
         'sector',
         'location',
-        'linkedin_url',
         'phone',
         'invited_by',
         'account_user_id',

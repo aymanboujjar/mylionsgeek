@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\User;
 use App\Services\CertificateImageGenerator;
+use App\Services\ProgramStatusService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
@@ -16,7 +17,7 @@ class GenerateCertificatePngs extends Command
     public function handle(CertificateImageGenerator $generator): int
     {
         $users = User::query()
-            ->whereNotNull('certified_at')
+            ->where('program_status', ProgramStatusService::CERTIFIED)
             ->whereNotNull('certified_training_id')
             ->with('formation')
             ->get();

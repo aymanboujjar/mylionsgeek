@@ -17,13 +17,13 @@ use Illuminate\Support\Collection;
  * Users whose life status is Left keep that outcome as 'left'. Staff-only
  * accounts are skipped, because the program lifecycle only describes students.
  */
-class MarkExistingUsersAsLaureate extends Command
+class MarkExistingUsersAsCertified extends Command
 {
-    protected $signature = 'program-status:mark-existing-laureate
+    protected $signature = 'program-status:mark-existing-certified
         {--apply : Write the changes (default is a dry run)}
         {--limit= : Only process the first N users}';
 
-    protected $description = 'One-off: set existing users to laureate, or left when their life status is Left.';
+    protected $description = 'One-off: set existing users to certified, or left when their life status is Left.';
 
     /** Accounts that are staff-only and never part of the student lifecycle. */
     private const EXCLUDED_ROLES = ['admin', 'super_admin', 'moderateur', 'recruiter'];
@@ -82,14 +82,14 @@ class MarkExistingUsersAsLaureate extends Command
     }
 
     /**
-     * Everyone is treated as a laureate except students who left, whose outcome is
+     * Everyone is treated as certified except students who left, whose outcome is
      * already known and must not be rewritten as a graduation.
      */
     private function resolveProgramStatus(User $user): string
     {
         return strtolower(trim((string) $user->status)) === 'left'
             ? User::PROGRAM_STATUS_LEFT
-            : User::PROGRAM_STATUS_LAUREATE;
+            : User::PROGRAM_STATUS_CERTIFIED;
     }
 
     /**

@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Head, useForm } from '@inertiajs/react';
 import axios from 'axios';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Building2, Globe, KeyRound, MapPin, Phone, User } from 'lucide-react';
+import { Building2, KeyRound, MapPin, Phone, User } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 const SECTOR_OPTIONS = [
@@ -102,7 +102,6 @@ export default function OrganisationOnboarding({ organization, passwordChangeOnl
         enterprise_name: organization?.enterprise_name ?? '',
         sector: organization?.sector ?? '',
         location: organization?.location ?? '',
-        linkedin_url: organization?.linkedin_url ?? '',
         phone: organization?.phone ?? '',
         current_password: '',
         password: '',
@@ -157,10 +156,6 @@ export default function OrganisationOnboarding({ organization, passwordChangeOnl
         }
         if (!form.data.phone.trim()) {
             errs.phone = 'The phone number field is required.';
-        }
-        const linkedin = form.data.linkedin_url.trim();
-        if (linkedin && !linkedin.toLowerCase().includes('linkedin')) {
-            errs.linkedin_url = 'The LinkedIn URL must contain "linkedin".';
         }
         return errs;
     };
@@ -224,13 +219,11 @@ export default function OrganisationOnboarding({ organization, passwordChangeOnl
             await axios.post(VALIDATE_STEP_URL, {
                 step: 2,
                 location: form.data.location,
-                linkedin_url: form.data.linkedin_url.trim() || null,
                 phone: form.data.phone,
             });
             setStepErrors((prev) => {
                 const next = { ...prev };
                 delete next.location;
-                delete next.linkedin_url;
                 delete next.phone;
                 return next;
             });
@@ -308,7 +301,7 @@ export default function OrganisationOnboarding({ organization, passwordChangeOnl
         const { errors } = form;
         if (errors.contact_name || errors.enterprise_name || errors.sector) {
             setStep(1);
-        } else if (errors.location || errors.linkedin_url || errors.phone) {
+        } else if (errors.location || errors.phone) {
             setStep(2);
         } else if (errors.current_password || errors.password || errors.password_confirmation) {
             setStep(3);
@@ -469,17 +462,6 @@ export default function OrganisationOnboarding({ organization, passwordChangeOnl
                                             value={form.data.location}
                                             onChange={(e) => updateField('location', e.target.value)}
                                             placeholder="Casablanca, Morocco"
-                                            className={inputClass}
-                                        />
-                                    </Field>
-
-                                    <Field id="linkedin_url" label="LinkedIn URL" error={fieldError('linkedin_url')} icon={Globe}>
-                                        <Input
-                                            id="linkedin_url"
-                                            type="url"
-                                            value={form.data.linkedin_url}
-                                            onChange={(e) => updateField('linkedin_url', e.target.value)}
-                                            placeholder="https://linkedin.com/company/..."
                                             className={inputClass}
                                         />
                                     </Field>
