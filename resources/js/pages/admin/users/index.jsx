@@ -1,6 +1,8 @@
 import Banner from '@/components/banner';
+import { canViewHealthData, matchesProgramStatusFilter } from '@/components/helpers/userDemographics';
 import { ADMIN_USER_STATUSES } from '@/components/helpers/userStatuses';
 import AppLayout from '@/layouts/app-layout';
+import { usePage } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import students from '../../../../../public/assets/images/banner/students.png';
 import FilterPart from './partials/FilterPart';
@@ -17,10 +19,13 @@ const defaultFilters = {
     field: null,
     gender: '',
     has_handicap: '',
-    program_status: '',
+    program_status: 'all',
 };
 
 const Users = ({ users, trainings }) => {
+    const { auth } = usePage().props;
+    const userRoles = Array.isArray(auth?.user?.role) ? auth.user.role : [auth?.user?.role].filter(Boolean);
+    const showHandicapFilter = canViewHealthData(userRoles);
     const [filters, setFilters] = useState(defaultFilters);
 
     // Flatten roles array for all users
@@ -91,6 +96,10 @@ const Users = ({ users, trainings }) => {
                 return (user.gender || '') === filters.gender;
             })
             .filter((user) => {
+                if (!showHandicapFilter) {
+                    return true;
+                }
+
                 if (filters.has_handicap === '' || filters.has_handicap === null || filters.has_handicap === undefined) {
                     return true;
                 }
@@ -98,10 +107,7 @@ const Users = ({ users, trainings }) => {
                 const userHasHandicap = user.has_handicap === true || user.has_handicap === 1 || user.has_handicap === '1';
                 return wantsHandicap ? userHasHandicap : user.has_handicap === false || user.has_handicap === 0 || user.has_handicap === '0';
             })
-            .filter((user) => {
-                if (!filters.program_status) return true;
-                return (user.program_status || '') === filters.program_status;
-            })
+            .filter((user) => matchesProgramStatusFilter(user.program_status, filters.program_status))
             .sort((a, b) => {
                 if (filters.date === 'oldest') {
                     return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();

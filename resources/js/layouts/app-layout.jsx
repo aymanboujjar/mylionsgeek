@@ -1,4 +1,3 @@
-import CertifiedLinkedInShareModal from '@/components/CertifiedLinkedInShareModal';
 import FullPageLoader from '@/components/full-page-loader';
 import ShowSkippableModal from '@/components/ShowSkippableModal';
 import { useImagesLoaded } from '@/hooks/use-images-loaded';
@@ -71,7 +70,6 @@ export default function AppLayout({ children, breadcrumbs, ...props }) {
                     className={`bg-light dark:bg-dark ${needsStudentHeaderOffset ? 'pt-20' : ''} mx-auto my-6 h-full w-[96%] rounded-lg shadow-lg`}
                 >
                     <ShowSkippableModal />
-                    {/* <CertifiedLinkedInShareModal /> */}
                     {children}
                 </div>
             </Layout>

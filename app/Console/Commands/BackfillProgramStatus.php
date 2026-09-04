@@ -86,7 +86,7 @@ class BackfillProgramStatus extends Command
     private function resolveProgramStatus(User $user): ?string
     {
         if ($user->certified_at !== null) {
-            return User::PROGRAM_STATUS_LAUREATE;
+            return User::PROGRAM_STATUS_CERTIFIED;
         }
 
         $lifeStatus = strtolower(trim((string) $user->status));
@@ -104,7 +104,7 @@ class BackfillProgramStatus extends Command
         }
 
         if (in_array($lifeStatus, self::POST_TRAINING_STATUSES, true)) {
-            return User::PROGRAM_STATUS_COMPLETED;
+            return User::PROGRAM_STATUS_NOT_CERTIFIED;
         }
 
         // Enrolled but the life status says nothing useful — assume still training.

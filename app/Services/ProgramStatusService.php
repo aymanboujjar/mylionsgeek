@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Formation;
 use App\Models\User;
 
 /**
@@ -13,12 +14,61 @@ use App\Models\User;
  */
 class ProgramStatusService
 {
+    public const ACTIVE = 'active';
+
+    public const CERTIFIED = 'certified';
+
+    public const NOT_CERTIFIED = 'not_certified';
+
+    public const LEFT = 'left';
+
+    /**
+     * Admins and coaches may assign program status "left".
+     * When a training is provided, coaches must be assigned to that training.
+     */
+    public function canAssignLeft(User $actor, ?Formation $training = null): bool
+    {
+        $roles = is_array($actor->role) ? $actor->role : array_filter([(string) $actor->role]);
+        $rolesLower = array_map('strtolower', array_map('strval', $roles));
+
+        if (count(array_intersect($rolesLower, ['admin', 'super_admin'])) > 0) {
+            return true;
+        }
+
+        if (in_array('coach', $rolesLower, true)) {
+            if ($training === null) {
+                return true;
+            }
+
+            return (int) $training->user_id === (int) $actor->id;
+        }
+
+        return false;
+    }
+
+    public function isLeft(?string $programStatus, ?string $legacyLifeStatus = null): bool
+    {
+        if ($programStatus === self::LEFT) {
+            return true;
+        }
+
+        if ($programStatus === null || $programStatus === '') {
+            return strtolower(trim((string) $legacyLifeStatus)) === 'left';
+        }
+
+        return false;
+    }
+
+    public function isActiveOrUnset(?string $programStatus): bool
+    {
+        return $programStatus === null || $programStatus === '' || $programStatus === self::ACTIVE;
+    }
+
     /**
      * Mark a user as active in the program when they join a training.
      *
      * Only fills an empty value. Re-adding a former student to a new cohort must
-     * not silently erase their 'left' or 'completed' record — promoting someone
-     * back to active is a deliberate decision an admin makes in the edit modal.
+     * not silently erase their 'left' or 'not_certified' record.
      *
      * @return bool True when the status was written.
      */
@@ -28,85 +78,90 @@ class ProgramStatusService
             return false;
         }
 
-        $user->program_status = User::PROGRAM_STATUS_ACTIVE;
+        $user->program_status = self::ACTIVE;
         $user->save();
 
         return true;
     }
 
     /**
+     * Set active on the in-memory model when enrolling (caller saves).
+     *
+     * Only fills an empty value — same guard as markActiveOnEnrollment().
+     */
+    public function applyEnrollmentStatus(User $user): void
+    {
+        if (filled($user->program_status)) {
+            return;
+        }
+
+        $user->program_status = self::ACTIVE;
+    }
+
+    /**
      * The program status a brand-new user should be created with.
      *
-     * Users created without a training (staff, recruiters, coworkers) stay null —
-     * the program lifecycle only describes students.
+     * Users created without a training (staff, recruiters, coworkers) stay null.
      */
     public function initialProgramStatusFor(?int $formationId): ?string
     {
-        return filled($formationId) ? User::PROGRAM_STATUS_ACTIVE : null;
+        return filled($formationId) ? self::ACTIVE : null;
     }
 
     /**
-     * Mark students who actually received a certificate as laureates.
+     * Bulk-mark successful certificate recipients as certified.
      *
-     * Callers pass only IDs whose PDF was generated successfully. A student who
-     * was selected but skipped because generation failed is not included.
+     * Idempotent: rows already certified are left unchanged.
      *
      * @param  list<int>  $userIds
-     * @return int Number of students updated.
+     * @return int Number of rows updated.
      */
-    public function markLaureates(array $userIds): int
+    public function markCertified(array $userIds): int
     {
-        return $this->transitionTo(User::PROGRAM_STATUS_LAUREATE, $userIds);
-    }
+        $userIds = array_values(array_unique(array_map('intval', $userIds)));
 
-    /**
-     * Mark everyone left unselected in a certificate print as having completed the
-     * training without a certificate.
-     *
-     * Only students sitting at 'active' are moved. That single guard is what keeps
-     * the sweep safe: students who left, already completed, or are already
-     * laureates are never rewritten, and neither is anyone whose lifecycle has not
-     * been backfilled yet.
-     *
-     * @param  list<int>  $selectedUserIds  Students who were selected, and so excluded.
-     * @return int Number of students updated.
-     */
-    public function markUnselectedAsCompleted(int $formationId, array $selectedUserIds): int
-    {
-        return User::query()
-            ->where('formation_id', $formationId)
-            ->when($selectedUserIds !== [], fn ($query) => $query->whereNotIn('id', $selectedUserIds))
-            ->where('program_status', User::PROGRAM_STATUS_ACTIVE)
-            ->update(['program_status' => User::PROGRAM_STATUS_COMPLETED]);
-    }
-
-    /**
-     * Bulk-write a program status, never touching a student who has left.
-     *
-     * Callers already filter students who left, but the guard is repeated here so
-     * the service is safe to call on its own. Note the explicit null check: in SQL
-     * `program_status != 'left'` is unknown for null rows and would exclude them.
-     *
-     * @param  list<int>  $userIds
-     */
-    private function transitionTo(string $programStatus, array $userIds): int
-    {
         if ($userIds === []) {
             return 0;
         }
 
-        $updated = 0;
+        return User::query()
+            ->whereIn('id', $userIds)
+            ->where(function ($query) {
+                $query->whereNull('program_status')
+                    ->orWhere('program_status', '!=', self::CERTIFIED);
+            })
+            ->update(['program_status' => self::CERTIFIED]);
+    }
 
-        foreach (array_chunk($userIds, 500) as $chunk) {
-            $updated += User::query()
-                ->whereIn('id', $chunk)
-                ->where(function ($query) {
-                    $query->whereNull('program_status')
-                        ->orWhere('program_status', '!=', User::PROGRAM_STATUS_LEFT);
-                })
-                ->update(['program_status' => $programStatus]);
+    /**
+     * After certificates are printed: unselected active students become not_certified.
+     * Left, certified, and not_certified students are unchanged.
+     *
+     * @param  list<int>  $certifiedUserIds
+     * @return int Number of rows updated.
+     */
+    public function markUnselectedActiveStudentsAsNotCertified(Formation $training, array $certifiedUserIds): int
+    {
+        $certifiedUserIds = array_values(array_unique(array_map('intval', $certifiedUserIds)));
+
+        return User::query()
+            ->where('formation_id', $training->id)
+            ->when($certifiedUserIds !== [], fn ($query) => $query->whereNotIn('id', $certifiedUserIds))
+            ->where(function ($query) {
+                $query->whereNull('program_status')
+                    ->orWhere('program_status', self::ACTIVE);
+            })
+            ->update(['program_status' => self::NOT_CERTIFIED]);
+    }
+
+    public function assertCanAssignLeft(User $actor, ?string $programStatus, ?Formation $training = null): void
+    {
+        if ($programStatus !== self::LEFT) {
+            return;
         }
 
-        return $updated;
+        if (! $this->canAssignLeft($actor, $training)) {
+            abort(403, 'Only admins and coaches can set program status to Left.');
+        }
     }
 }

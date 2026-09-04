@@ -356,11 +356,12 @@ class TrainingController extends Controller
 
         $training = Formation::findOrFail($id);
         $user = User::findOrFail($validated['student_id']);
-
-        $user->formation_id = $training->id;
-        $user->save();
-
-        $programStatusService->markActiveOnEnrollment($user);
+        
+        if ($user) {
+            $user->formation_id = $training->id;
+            $programStatusService->applyEnrollmentStatus($user);
+            $user->save();
+        }
 
         return response()->json([
             'success' => true,
@@ -389,7 +390,7 @@ class TrainingController extends Controller
         ]);
     }
 
-    public function bulkUpdateUsers(Request $request, $id)
+    public function bulkUpdateUsers(Request $request, $id, ProgramStatusService $programStatusService)
     {
         $checkResult = $this->checkRequestedUser();
         if ($checkResult) {
@@ -411,10 +412,30 @@ class TrainingController extends Controller
             'user_ids.*' => 'required|exists:users,id',
             'roles' => 'nullable|array',
             'roles.*' => 'nullable|string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
-            'status' => 'nullable|string|in:Working,Studying,Internship,Unemployed,Freelancing',
+            'program_status' => 'nullable|in:active,certified,not_certified,left',
+            'has_handicap' => 'nullable|in:0,1',
         ]);
 
         $training = Formation::findOrFail($id);
+
+        if ($request->exists('program_status')) {
+            $programStatus = $request->input('program_status');
+            if ($programStatus !== null && $programStatus !== '') {
+                $programStatusService->assertCanAssignLeft($actor, $programStatus, $training);
+            }
+        }
+
+        if ($request->exists('has_handicap')) {
+            $actorRoles = is_array($actor->role) ? $actor->role : array_filter([(string) $actor->role]);
+            $canViewHealthData = count(array_intersect($actorRoles, ['admin', 'super_admin'])) > 0;
+            if (! $canViewHealthData) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only admins can update handicap data.',
+                ], 403);
+            }
+        }
+
         $users = User::whereIn('id', $validated['user_ids'])
             ->where('formation_id', $training->id)
             ->get();
@@ -436,8 +457,18 @@ class TrainingController extends Controller
                 }, array_filter($validated['roles'])));
             }
 
-            if ($request->has('status') && !empty($validated['status'])) {
-                $updateData['status'] = $validated['status'];
+            if ($request->exists('program_status')) {
+                $programStatus = $request->input('program_status');
+                $updateData['program_status'] = ($programStatus === null || $programStatus === '') ? null : $programStatus;
+            }
+
+            if ($request->exists('has_handicap')) {
+                $handicap = $request->input('has_handicap');
+                if ($handicap === null || $handicap === '') {
+                    $updateData['has_handicap'] = null;
+                } else {
+                    $updateData['has_handicap'] = (int) $handicap === 1;
+                }
             }
 
             if (!empty($updateData)) {

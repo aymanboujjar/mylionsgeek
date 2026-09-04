@@ -8,7 +8,7 @@ const RightSideBar = () => {
                 {/* News Section */}
                 <div className="rounded-lg bg-white p-4 shadow dark:bg-[#101112]">
                     <div className="mb-4 flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">LinkedIn News</h3>
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Community News</h3>
                         <TrendingUp className="h-4 w-4 text-gray-500" />
                     </div>
                     <div className="space-y-3">

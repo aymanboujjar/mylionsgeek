@@ -156,7 +156,7 @@ export default function CenterFeed({
                                     <div className="text-sm text-gray-600 dark:text-gray-400 mt-2 space-y-1">
                                         <p>Développeur Full Stack Junior en recherche active</p>
                                         <p>📧 mohamed.camara@email.com • 📱 +212 6XX XX XX XX</p>
-                                        <p>📍 Casablanca, Maroc • LinkedIn • GitHub • Portfolio</p>
+                                        <p>📍 Casablanca, Maroc • GitHub • Portfolio</p>
                                     </div>
                                 </div>
 
