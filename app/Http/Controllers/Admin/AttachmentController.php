@@ -11,21 +11,28 @@ use Illuminate\Support\Facades\Storage;
 
 class AttachmentController extends Controller
 {
+    public const DISK = 'attachments';
+
+    private const MIMES = 'jpeg,jpg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,mp3,mp4,webm';
+
     /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|max:10240|mimes:jpeg,jpg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,zip,mp3,mp4,webm',
+            'file' => 'required|file|max:10240|mimes:'.self::MIMES,
             'project_id' => 'required|exists:projects,id',
             'task_id' => 'nullable|exists:tasks,id',
         ]);
 
-        $file = $request->file('file');
-        $path = $file->store('attachments', 'public');
+        $project = Project::findOrFail($request->project_id);
+        $this->assertProjectAccess($project);
 
-        $attachment = Attachment::create([
+        $file = $request->file('file');
+        $path = $file->store('attachments', self::DISK);
+
+        Attachment::create([
             'name' => $file->hashName(),
             'original_name' => $file->getClientOriginalName(),
             'path' => $path,
@@ -36,8 +43,6 @@ class AttachmentController extends Controller
             'uploaded_by' => Auth::id(),
         ]);
 
-        // Update project last activity
-        $project = Project::find($request->project_id);
         $project->update([
             'last_activity' => now(),
             'is_updated' => true,
@@ -52,7 +57,9 @@ class AttachmentController extends Controller
      */
     public function destroy(Attachment $attachment)
     {
-        // Delete file from storage
+        $this->assertProjectAccess(Project::findOrFail($attachment->project_id));
+
+        Storage::disk(self::DISK)->delete($attachment->path);
         Storage::disk('public')->delete($attachment->path);
 
         $attachment->delete();
@@ -62,10 +69,35 @@ class AttachmentController extends Controller
     }
 
     /**
-     * Download the specified attachment.
+     * Download the specified attachment (project members only).
      */
     public function download(Attachment $attachment)
     {
-        return Storage::disk('public')->download($attachment->path, $attachment->original_name);
+        $this->assertProjectAccess(Project::findOrFail($attachment->project_id));
+
+        $disk = Storage::disk(self::DISK);
+        if ($disk->exists($attachment->path)) {
+            return $disk->download($attachment->path, $attachment->original_name);
+        }
+
+        $public = Storage::disk('public');
+        if ($public->exists($attachment->path)) {
+            return $public->download($attachment->path, $attachment->original_name);
+        }
+
+        abort(404);
+    }
+
+    private function assertProjectAccess(Project $project): void
+    {
+        $userId = Auth::id();
+        if ($project->created_by === $userId) {
+            return;
+        }
+        if ($project->users()->where('user_id', $userId)->exists()) {
+            return;
+        }
+
+        abort(403);
     }
 }

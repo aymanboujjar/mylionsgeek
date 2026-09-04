@@ -75,7 +75,7 @@ const ProjectAttachments = ({ attachments = [] }) => {
                                             </PopoverTrigger>
                                             <PopoverContent className="w-auto border-none bg-white p-0 shadow-none">
                                                 <img
-                                                    src={`/storage/${attachment.path}`}
+                                                    src={route('admin.attachments.download', attachment.id)}
                                                     alt={attachment.original_name}
                                                     className="max-h-xs max-w-xs rounded-lg shadow-xl"
                                                 />
@@ -93,7 +93,7 @@ const ProjectAttachments = ({ attachments = [] }) => {
                                 <a
                                     className="rounded-md p-2 text-dark/60 hover:bg-alpha/20 hover:text-alpha dark:text-alpha dark:hover:text-alpha"
                                     download={true}
-                                    href={`/storage/${attachment.path}`}
+                                    href={route('admin.attachments.download', attachment.id)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >

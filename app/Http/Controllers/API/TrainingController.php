@@ -36,6 +36,13 @@ class TrainingController extends Controller
             $mineOnly = $request->boolean('mine');
 
             $authUser = Auth::guard('sanctum')->user();
+            $isStaff = $authUser instanceof User && EnsureTrainingManagementRole::allows($authUser);
+
+            // Non-staff may only see formations they are enrolled in (no coach emails).
+            if (! $isStaff) {
+                $mineOnly = true;
+            }
+
             $myFormationIds = $mineOnly && $authUser
                 ? $authUser->resolvedFormationIds()
                 : [];
@@ -46,7 +53,7 @@ class TrainingController extends Controller
                 if (empty($myFormationIds)) {
                     return response()->json([
                         'trainings' => [],
-                        'formation_id' => null,
+                        'formation_id' => $authUser?->primaryFormationId(),
                         'formation_ids' => [],
                         'coaches' => [],
                         'tracks' => [],
@@ -57,37 +64,38 @@ class TrainingController extends Controller
                 $query->whereIn('id', $myFormationIds);
             }
 
-            if (!empty($coachId)) {
+            if (! empty($coachId) && $isStaff) {
                 $query->where('user_id', $coachId);
             }
 
-            if (!empty($track)) {
+            if (! empty($track)) {
                 $query->where('category', $track);
             }
-            
-            if (!empty($promo)) {
+
+            if (! empty($promo)) {
                 $query->where('promo', $promo);
             }
 
-            $trainings = $query->orderBy('created_at', 'desc')->get()->map(function ($training) {
+            $trainings = $query->orderBy('created_at', 'desc')->get()->map(function ($training) use ($isStaff) {
                 try {
                     $img = $training->img ?? null;
-                    if ($img && !Str::startsWith($img, ['http://', 'https://', 'storage/'])) {
-                        $img = 'storage/img/training/' . ltrim($img, '/');
-                    } elseif ($img && Str::startsWith($img, 'storage/') && !Str::startsWith($img, 'storage/img/')) {
-                        // If it's already storage/ but not storage/img/training/, update it
-                        $img = 'storage/img/training/' . basename($img);
+                    if ($img && ! Str::startsWith($img, ['http://', 'https://', 'storage/'])) {
+                        $img = 'storage/img/training/'.ltrim($img, '/');
+                    } elseif ($img && Str::startsWith($img, 'storage/') && ! Str::startsWith($img, 'storage/img/')) {
+                        $img = 'storage/img/training/'.basename($img);
                     }
-                    
+
                     $coachData = null;
                     if ($training->coach) {
                         $coachData = [
                             'id' => $training->coach->id ?? null,
                             'name' => $training->coach->name ?? null,
-                            'email' => $training->coach->email ?? null,
                         ];
+                        if ($isStaff) {
+                            $coachData['email'] = $training->coach->email ?? null;
+                        }
                     }
-                    
+
                     return [
                         'id' => $training->id ?? null,
                         'name' => $training->name ?? null,
@@ -102,38 +110,46 @@ class TrainingController extends Controller
                         'updated_at' => $training->updated_at ? (is_string($training->updated_at) ? $training->updated_at : $training->updated_at->toDateTimeString()) : null,
                     ];
                 } catch (\Exception $e) {
-                    Log::error('Error mapping training: ' . $e->getMessage(), [
+                    Log::error('Error mapping training: '.$e->getMessage(), [
                         'training_id' => $training->id ?? 'unknown',
                     ]);
+
                     return null;
                 }
             })->filter();
 
-            // Try to get coaches, but handle errors gracefully
-            try {
-                $coaches = User::whereJsonContains('role', 'coach')->get()->map(function ($coach) {
-                    return [
-                        'id' => $coach->id,
-                        'name' => $coach->name,
-                        'email' => $coach->email,
-                    ];
-                });
-            } catch (\Exception $e) {
-                // Fallback: try to get coaches by role string if JSON query fails
-                $coaches = User::where('role', 'coach')
-                    ->orWhere('role', 'like', '%coach%')
-                    ->get()
-                    ->map(function ($coach) {
+            $coaches = collect();
+            if ($isStaff) {
+                try {
+                    $coaches = User::whereJsonContains('role', 'coach')->get()->map(function ($coach) {
                         return [
                             'id' => $coach->id,
                             'name' => $coach->name,
                             'email' => $coach->email,
                         ];
                     });
+                } catch (\Exception $e) {
+                    $coaches = User::where('role', 'coach')
+                        ->orWhere('role', 'like', '%coach%')
+                        ->get()
+                        ->map(function ($coach) {
+                            return [
+                                'id' => $coach->id,
+                                'name' => $coach->name,
+                                'email' => $coach->email,
+                            ];
+                        });
+                }
             }
 
-            $tracks = Formation::select('category')->distinct()->pluck('category')->filter()->values()->toArray();
-            $promos = Formation::select('promo')->distinct()->pluck('promo')->filter()->values()->toArray();
+            $tracksQuery = Formation::query()->select('category')->distinct();
+            $promosQuery = Formation::query()->select('promo')->distinct();
+            if ($mineOnly && ! empty($myFormationIds)) {
+                $tracksQuery->whereIn('id', $myFormationIds);
+                $promosQuery->whereIn('id', $myFormationIds);
+            }
+            $tracks = $tracksQuery->pluck('category')->filter()->values()->toArray();
+            $promos = $promosQuery->pluck('promo')->filter()->values()->toArray();
 
             $payload = [
                 'trainings' => $trainings->values()->toArray(),
@@ -141,7 +157,7 @@ class TrainingController extends Controller
                 'tracks' => $tracks,
                 'promos' => $promos,
                 'filters' => [
-                    'coach' => $coachId,
+                    'coach' => $isStaff ? $coachId : null,
                     'track' => $track,
                     'promo' => $promo,
                     'mine' => $mineOnly,

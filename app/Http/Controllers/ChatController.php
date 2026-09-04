@@ -14,11 +14,16 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ChatController extends Controller
 {
+    public const ATTACHMENT_DISK = 'attachments';
+
     /**
      * Get all conversations for the authenticated user
      */
@@ -170,20 +175,7 @@ class ChatController extends Controller
                 'last_login' => $otherUser->last_login ? Carbon::parse($otherUser->last_login)->toISOString() : null,
                 'last_online' => $otherUser->last_online ? Carbon::parse($otherUser->last_online)->toISOString() : null,
             ],
-            'messages' => $conversation->messages->map(function ($message) {
-                return [
-                    'id' => $message->id,
-                    'body' => $message->body,
-                    'sender_id' => $message->sender_id,
-                    'attachment_path' => $message->attachment_path,
-                    'attachment_type' => $message->attachment_type,
-                    'attachment_name' => $message->attachment_name,
-                    'attachment_size' => $message->attachment_path && file_exists(storage_path('app/public/' . $message->attachment_path)) ? filesize(storage_path('app/public/' . $message->attachment_path)) : null,
-                    'is_read' => $message->is_read,
-                    'read_at' => $message->read_at ? $message->read_at->toISOString() : null,
-                    'created_at' => $message->created_at->toISOString(),
-                ];
-            }),
+            'messages' => $conversation->messages->map(fn ($message) => $this->serializeChatMessage($message)),
         ];
 
         if (request()->header('X-Inertia')) {
@@ -215,25 +207,7 @@ class ChatController extends Controller
             ->with('sender:id,name,image')
             ->orderBy('created_at', 'asc')
             ->get()
-            ->map(function ($message) {
-                return [
-                    'id' => $message->id,
-                    'body' => $message->body,
-                    'sender_id' => $message->sender_id,
-                    'sender' => [
-                        'id' => $message->sender->id,
-                        'name' => $message->sender->name,
-                        'image' => $message->sender->image,
-                    ],
-                    'attachment_path' => $message->attachment_path,
-                    'attachment_type' => $message->attachment_type,
-                    'attachment_name' => $message->attachment_name,
-                    'attachment_size' => $message->attachment_path && file_exists(storage_path('app/public/' . $message->attachment_path)) ? filesize(storage_path('app/public/' . $message->attachment_path)) : null,
-                    'is_read' => $message->is_read,
-                    'read_at' => $message->read_at ? $message->read_at->toISOString() : null,
-                    'created_at' => $message->created_at->toISOString(),
-                ];
-            });
+            ->map(fn ($message) => $this->serializeChatMessage($message, true));
 
         // Mark messages as read
         $updatedCount = $conversation->messages()
@@ -373,7 +347,7 @@ class ChatController extends Controller
             $file = $request->file('attachment');
             $attachmentName = $file->getClientOriginalName();
             $attachmentType = $this->chatAttachmentTypeFromMime($file->getMimeType());
-            $attachmentPath = $file->store('chat/attachments', 'public');
+            $attachmentPath = $file->store('chat/attachments', self::ATTACHMENT_DISK);
         }
 
         $message = Message::create([
@@ -592,23 +566,7 @@ class ChatController extends Controller
 
         $message->load('sender:id,name,image');
 
-        $messageData = [
-            'id' => $message->id,
-            'body' => $message->body,
-            'sender_id' => $message->sender_id,
-            'sender' => [
-                'id' => $message->sender->id,
-                'name' => $message->sender->name,
-                'image' => $message->sender->image,
-            ],
-            'attachment_path' => $message->attachment_path,
-            'attachment_type' => $message->attachment_type,
-            'attachment_name' => $message->attachment_name,
-            'attachment_size' => $message->attachment_path && file_exists(storage_path('app/public/' . $message->attachment_path)) ? filesize(storage_path('app/public/' . $message->attachment_path)) : null,
-            'is_read' => $message->is_read,
-            'read_at' => $message->read_at ? $message->read_at->toISOString() : null,
-            'created_at' => $message->created_at->toISOString(),
-        ];
+        $messageData = $this->serializeChatMessage($message, true);
 
         // Broadcast message via Ably for real-time updates
         try {
@@ -797,10 +755,7 @@ class ChatController extends Controller
 
         // Delete attachment file if exists
         if ($message->attachment_path) {
-            $filePath = storage_path('app/public/' . $message->attachment_path);
-            if (file_exists($filePath)) {
-                @unlink($filePath);
-            }
+            $this->deleteStoredChatAttachment($message->attachment_path);
         }
 
         $conversationId = $message->conversation_id;
@@ -852,6 +807,102 @@ class ChatController extends Controller
 
         // Always return JSON for fetch requests
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Stream a chat attachment for conversation participants only.
+     */
+    public function downloadAttachment($messageId): BinaryFileResponse|StreamedResponse|\Illuminate\Http\Response
+    {
+        $user = Auth::user();
+        $message = Message::query()->with('conversation')->findOrFail($messageId);
+        $conversation = $message->conversation;
+
+        if (! $conversation || ((int) $conversation->user_one_id !== (int) $user->id && (int) $conversation->user_two_id !== (int) $user->id)) {
+            abort(403);
+        }
+
+        if (! $message->attachment_path) {
+            abort(404);
+        }
+
+        $absolute = $this->resolveChatAttachmentAbsolutePath($message->attachment_path);
+        if (! $absolute || ! is_readable($absolute)) {
+            abort(404);
+        }
+
+        $name = $message->attachment_name ?: basename($message->attachment_path);
+
+        return response()->file($absolute, [
+            'Content-Disposition' => 'inline; filename="'.addslashes($name).'"',
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeChatMessage(Message $message, bool $withSender = false): array
+    {
+        $data = [
+            'id' => $message->id,
+            'body' => $message->body,
+            'sender_id' => $message->sender_id,
+            'attachment_path' => $message->attachment_path,
+            'attachment_url' => $message->attachment_path
+                ? (request()->is('api/*')
+                    ? url('/api/mobile/chat/message/'.$message->id.'/attachment')
+                    : url('/chat/message/'.$message->id.'/attachment'))
+                : null,
+            'attachment_type' => $message->attachment_type,
+            'attachment_name' => $message->attachment_name,
+            'attachment_size' => $this->chatAttachmentSize($message->attachment_path),
+            'is_read' => $message->is_read,
+            'read_at' => $message->read_at ? $message->read_at->toISOString() : null,
+            'created_at' => $message->created_at->toISOString(),
+        ];
+
+        if ($withSender && $message->relationLoaded('sender') && $message->sender) {
+            $data['sender'] = [
+                'id' => $message->sender->id,
+                'name' => $message->sender->name,
+                'image' => $message->sender->image,
+            ];
+        }
+
+        return $data;
+    }
+
+    private function chatAttachmentSize(?string $relative): ?int
+    {
+        if (! $relative) {
+            return null;
+        }
+
+        $absolute = $this->resolveChatAttachmentAbsolutePath($relative);
+
+        return $absolute && is_file($absolute) ? filesize($absolute) : null;
+    }
+
+    private function resolveChatAttachmentAbsolutePath(string $relative): ?string
+    {
+        $private = Storage::disk(self::ATTACHMENT_DISK);
+        if ($private->exists($relative)) {
+            return $private->path($relative);
+        }
+
+        $public = Storage::disk('public');
+        if ($public->exists($relative)) {
+            return $public->path($relative);
+        }
+
+        return null;
+    }
+
+    private function deleteStoredChatAttachment(string $relative): void
+    {
+        Storage::disk(self::ATTACHMENT_DISK)->delete($relative);
+        Storage::disk('public')->delete($relative);
     }
 
     /**

@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Download, FileIcon, X } from 'lucide-react';
+import { resolveAttachmentUrl } from '../resolveAttachmentUrl';
 
 // Panel dial preview f right side dial chatbox
 export default function PreviewPanel({ attachment, onClose, onPrevious, onNext, hasMultiple, currentIndex, totalCount }) {
@@ -7,11 +8,11 @@ export default function PreviewPanel({ attachment, onClose, onPrevious, onNext, 
 
     const isImage = attachment.type === 'image' || attachment.path?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
     const isVideo = attachment.type === 'video' || attachment.path?.match(/\.(mp4|webm|mov|avi)$/i);
+    const mediaUrl = resolveAttachmentUrl(attachment.path);
 
     const handleDownload = () => {
-        const url = attachment.path.startsWith('/storage/') || attachment.path.startsWith('blob:') ? attachment.path : `/storage/${attachment.path}`;
         const link = document.createElement('a');
-        link.href = url;
+        link.href = mediaUrl;
         link.download = attachment.name || 'attachment';
         document.body.appendChild(link);
         link.click();
@@ -52,11 +53,7 @@ export default function PreviewPanel({ attachment, onClose, onPrevious, onNext, 
             <div className="flex flex-1 items-center justify-center overflow-auto bg-black/90 p-4">
                 {isImage && attachment.path && (
                     <img
-                        src={
-                            attachment.path.startsWith('/storage/') || attachment.path.startsWith('blob:')
-                                ? attachment.path
-                                : `/storage/${attachment.path}`
-                        }
+                        src={mediaUrl}
                         alt={attachment.name || 'Attachment'}
                         className="h-full w-full rounded-lg object-contain"
                     />
@@ -64,11 +61,7 @@ export default function PreviewPanel({ attachment, onClose, onPrevious, onNext, 
 
                 {isVideo && attachment.path && (
                     <video
-                        src={
-                            attachment.path.startsWith('/storage/') || attachment.path.startsWith('blob:')
-                                ? attachment.path
-                                : `/storage/${attachment.path}`
-                        }
+                        src={mediaUrl}
                         controls
                         className="h-full w-full rounded-lg object-contain"
                     />

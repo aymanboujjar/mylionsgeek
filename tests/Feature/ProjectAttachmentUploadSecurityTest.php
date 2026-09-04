@@ -11,6 +11,7 @@ uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
 
 beforeEach(function () {
     Storage::fake('public');
+    Storage::fake('attachments');
     $this->withoutVite();
 
     Schema::dropIfExists('attachments');
@@ -124,5 +125,28 @@ test('pdf project attachment upload is accepted', function () {
         ])
         ->assertSessionDoesntHaveErrors();
 
-    expect(\App\Models\Attachment::count())->toBe(1);
+    expect(\App\Models\Attachment::count())->toBe(1)
+        ->and(Storage::disk('attachments')->allFiles())->not->toBeEmpty()
+        ->and(Storage::disk('public')->allFiles())->toBe([]);
+});
+
+test('zip project attachment upload is rejected', function () {
+    $user = projectUploadSecurityUser();
+    $project = Project::create([
+        'name' => 'Secure Project',
+        'status' => 'active',
+        'created_by' => $user->id,
+    ]);
+
+    $zip = UploadedFile::fake()->create('archive.zip', 40, 'application/zip');
+
+    $this->actingAs($user)
+        ->post(route('admin.projects.upload-attachment'), [
+            'project_id' => $project->id,
+            'file' => $zip,
+        ])
+        ->assertSessionHasErrors('file');
+
+    expect(\App\Models\Attachment::count())->toBe(0)
+        ->and(Storage::disk('attachments')->allFiles())->toBe([]);
 });

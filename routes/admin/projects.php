@@ -42,6 +42,7 @@ Route::middleware(['auth', 'role:admin,super_admin,moderateur,coach,pro'])->pref
     Route::put('tasks/{task}/comments/{comment}', [TaskController::class, 'updateComment'])->name('tasks.update-comment');
     Route::delete('tasks/{task}/comments/{comment}', [TaskController::class, 'deleteComment'])->name('tasks.delete-comment');
     Route::post('tasks/{task}/attachments', [TaskController::class, 'addAttachment'])->name('tasks.add-attachment');
+    Route::get('tasks/{task}/attachments/{attachmentId}/download', [TaskController::class, 'downloadAttachment'])->name('tasks.download-attachment');
     Route::delete('tasks/{task}/attachments', [TaskController::class, 'removeAttachment'])->name('tasks.remove-attachment');
     Route::post('tasks/{task}/pin', [TaskController::class, 'togglePin'])->name('tasks.toggle-pin');
 

@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Download, FileIcon, X } from 'lucide-react';
 import { useState } from 'react';
+import { resolveAttachmentUrl } from './resolveAttachmentUrl';
 
 export default function AttachmentPreview({ attachment, onClose }) {
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -13,6 +14,7 @@ export default function AttachmentPreview({ attachment, onClose }) {
 
     const currentAttachment = attachments[currentIndex];
     const hasMultiple = attachments.length > 1;
+    const mediaUrl = resolveAttachmentUrl(currentAttachment.path);
 
     const goToPrevious = () => {
         setCurrentIndex((prev) => (prev === 0 ? attachments.length - 1 : prev - 1));
@@ -23,9 +25,8 @@ export default function AttachmentPreview({ attachment, onClose }) {
     };
 
     const handleDownload = () => {
-        const url = `/storage/${currentAttachment.path}`;
         const link = document.createElement('a');
-        link.href = url;
+        link.href = mediaUrl;
         link.download = currentAttachment.name || 'attachment';
         document.body.appendChild(link);
         link.click();
@@ -73,14 +74,14 @@ export default function AttachmentPreview({ attachment, onClose }) {
                 <div className="flex max-h-[90vh] max-w-[90vw] items-center justify-center">
                     {isImage && currentAttachment.path && (
                         <img
-                            src={`/storage/${currentAttachment.path}`}
+                            src={mediaUrl}
                             alt={currentAttachment.name || 'Attachment'}
                             className="max-h-[90vh] max-w-full rounded-lg object-contain"
                         />
                     )}
 
                     {isVideo && currentAttachment.path && (
-                        <video src={`/storage/${currentAttachment.path}`} controls className="max-h-[90vh] max-w-full rounded-lg" />
+                        <video src={mediaUrl} controls className="max-h-[90vh] max-w-full rounded-lg" />
                     )}
 
                     {!isImage && !isVideo && currentAttachment.path && (

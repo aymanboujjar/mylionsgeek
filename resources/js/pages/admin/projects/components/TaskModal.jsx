@@ -1311,7 +1311,10 @@ const TaskModal = ({
                                                                       </PopoverTrigger>
                                                                       <PopoverContent className="w-auto p-0">
                                                                           <img
-                                                                              src={`/storage/${attachment.path}`}
+                                                                              src={route('admin.tasks.download-attachment', {
+                                                                                  task: taskData.id,
+                                                                                  attachmentId: attachment.id,
+                                                                              })}
                                                                               alt={attachment.name}
                                                                               className="max-h-xs max-w-xs rounded"
                                                                           />
@@ -1329,7 +1332,10 @@ const TaskModal = ({
                                                           <a
                                                               className="rounded p-1.5 hover:bg-muted"
                                                               download={true}
-                                                              href={`/storage/${attachment.path}`}
+                                                              href={route('admin.tasks.download-attachment', {
+                                                                  task: taskData.id,
+                                                                  attachmentId: attachment.id,
+                                                              })}
                                                               target="_blank"
                                                               rel="noopener noreferrer"
                                                           >

@@ -11,6 +11,7 @@ uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
 
 beforeEach(function () {
     Storage::fake('public');
+    Storage::fake('attachments');
 });
 
 function m4User(array $overrides = []): User
@@ -59,6 +60,7 @@ test('anonymous cannot upload a chat attachment', function () {
     ])->assertUnauthorized();
 
     expect(Message::query()->count())->toBe(0)
+        ->and(Storage::disk('attachments')->allFiles('chat/attachments'))->toBeEmpty()
         ->and(Storage::disk('public')->allFiles('chat/attachments'))->toBeEmpty();
 });
 
@@ -74,6 +76,7 @@ test('dangerous chat attachments are rejected and not stored', function (string 
         ->assertJsonValidationErrors('attachment');
 
     expect(Message::query()->count())->toBe(0)
+        ->and(Storage::disk('attachments')->allFiles('chat/attachments'))->toBeEmpty()
         ->and(Storage::disk('public')->allFiles('chat/attachments'))->toBeEmpty();
 })->with([
     'html' => ['xss.html', 'text/html'],
@@ -102,7 +105,8 @@ test('allowed jpeg png pdf and m4a attachments are accepted', function (string $
 
     $path = $response->json('message.attachment_path');
     expect($path)->toBeString()->not->toBeEmpty()
-        ->and(Storage::disk('public')->exists($path))->toBeTrue()
+        ->and(Storage::disk('attachments')->exists($path))->toBeTrue()
+        ->and(Storage::disk('public')->exists($path))->toBeFalse()
         ->and(Message::query()->count())->toBe(1);
 })->with([
     'jpeg' => ['photo.jpg', 'image/jpeg', 'image', true],
@@ -124,6 +128,7 @@ test('client attachment_type image cannot make html acceptable', function () {
         ->assertJsonValidationErrors('attachment');
 
     expect(Message::query()->count())->toBe(0)
+        ->and(Storage::disk('attachments')->allFiles('chat/attachments'))->toBeEmpty()
         ->and(Storage::disk('public')->allFiles('chat/attachments'))->toBeEmpty();
 });
 
@@ -143,6 +148,7 @@ test('sender must belong to the conversation', function () {
     ])->assertNotFound();
 
     expect(Message::query()->count())->toBe(0)
+        ->and(Storage::disk('attachments')->allFiles('chat/attachments'))->toBeEmpty()
         ->and(Storage::disk('public')->allFiles('chat/attachments'))->toBeEmpty();
 });
 
@@ -158,5 +164,6 @@ test('sender must follow the other participant', function () {
         ->assertJsonPath('error', 'You can only message users you follow');
 
     expect(Message::query()->count())->toBe(0)
+        ->and(Storage::disk('attachments')->allFiles('chat/attachments'))->toBeEmpty()
         ->and(Storage::disk('public')->allFiles('chat/attachments'))->toBeEmpty();
 });

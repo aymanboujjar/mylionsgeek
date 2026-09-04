@@ -278,7 +278,7 @@ export default function FloatingChatWindow({ conversation, onClose, onMinimize, 
 
                     {message.attachment_type === 'image' && message.attachment_path && (
                         <img
-                            src={`/storage/${message.attachment_path}`}
+                            src={message.attachment_url || `/storage/${message.attachment_path}`}
                             alt="Attachment"
                             className="mt-2 max-h-64 max-w-full rounded object-contain"
                         />
@@ -286,7 +286,7 @@ export default function FloatingChatWindow({ conversation, onClose, onMinimize, 
 
                     {message.attachment_type === 'file' && message.attachment_path && (
                         <a
-                            href={`/storage/${message.attachment_path}`}
+                            href={message.attachment_url || `/storage/${message.attachment_path}`}
                             download={message.attachment_name}
                             className={cn(
                                 'mt-2 flex items-center gap-2 rounded border p-2',
@@ -301,12 +301,12 @@ export default function FloatingChatWindow({ conversation, onClose, onMinimize, 
                     {message.attachment_type === 'audio' && message.attachment_path && (
                         <div className={cn('mt-2 flex items-center gap-2 rounded p-2', isCurrentUser ? 'bg-primary-foreground/10' : 'bg-background')}>
                             <button
-                                onClick={() => handlePlayAudio(message.attachment_path, message.id)}
+                                onClick={() => handlePlayAudio(message.attachment_url || message.attachment_path, message.id)}
                                 className="rounded-full p-1.5 transition-colors hover:bg-black/10 dark:hover:bg-white/10"
                             >
                                 {isPlayingAudio === message.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                             </button>
-                            <audio id={`audio-${message.id}`} src={`/storage/${message.attachment_path}`} className="hidden" />
+                            <audio id={`audio-${message.id}`} src={message.attachment_url || `/storage/${message.attachment_path}`} className="hidden" />
                             <span className="text-xs">Voice message</span>
                         </div>
                     )}

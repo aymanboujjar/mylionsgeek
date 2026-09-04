@@ -942,7 +942,16 @@ export default function ChatBox({ conversation, onClose, onBack, isExpanded, onE
     };
 
     const handleDownloadAttachment = (attachmentPath, attachmentName) => {
-        const url = attachmentPath.startsWith('/storage/') ? attachmentPath : `/storage/${attachmentPath}`;
+        if (!attachmentPath) return;
+        const url =
+            attachmentPath.startsWith('http://') ||
+            attachmentPath.startsWith('https://') ||
+            attachmentPath.startsWith('/api/') ||
+            attachmentPath.startsWith('/chat/') ||
+            attachmentPath.startsWith('/storage/') ||
+            attachmentPath.startsWith('blob:')
+                ? attachmentPath
+                : `/storage/${attachmentPath}`;
         const link = document.createElement('a');
         link.href = url;
         link.download = attachmentName || 'attachment';
@@ -954,7 +963,11 @@ export default function ChatBox({ conversation, onClose, onBack, isExpanded, onE
     const getAttachmentsForPreview = () => {
         return messages
             .filter((m) => m.attachment_path && ['image', 'video'].includes(m.attachment_type))
-            .map((m) => ({ type: m.attachment_type, path: m.attachment_path, name: m.attachment_name }));
+            .map((m) => ({
+                type: m.attachment_type,
+                path: m.attachment_url || m.attachment_path,
+                name: m.attachment_name,
+            }));
     };
 
     const handlePreviewAttachment = (att) => {

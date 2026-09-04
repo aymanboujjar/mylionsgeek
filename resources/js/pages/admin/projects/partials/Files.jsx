@@ -238,7 +238,7 @@ const Files = ({ projectAttachments = [], taskAttachments = [], projectId }) => 
                                                     </PopoverTrigger>
                                                     <PopoverContent className="w-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl">
                                                         <img
-                                                            src={`/storage/${file.path}`}
+                                                            src={route('admin.attachments.download', file.id)}
                                                             alt={file.original_name || file.name}
                                                             className="max-h-sm max-w-sm rounded-lg shadow-sm"
                                                         />
@@ -257,7 +257,7 @@ const Files = ({ projectAttachments = [], taskAttachments = [], projectId }) => 
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem asChild>
                                                     <a
-                                                        href={`/storage/${file.path}`}
+                                                        href={route('admin.attachments.download', file.id)}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         className="flex w-full items-center"
@@ -268,7 +268,7 @@ const Files = ({ projectAttachments = [], taskAttachments = [], projectId }) => 
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
                                                     <a
-                                                        href={`/storage/${file.path}`}
+                                                        href={route('admin.attachments.download', file.id)}
                                                         download={file.original_name || file.name}
                                                         className="flex w-full items-center"
                                                     >

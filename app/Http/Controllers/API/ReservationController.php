@@ -8,11 +8,13 @@ use App\Models\Reservation;
 use App\Models\ReservationCowork;
 use App\Models\User;
 use App\Services\CoworkReservationConflictService;
+use App\Services\StudioReservationConflictService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Response;
 
 class ReservationController extends Controller
@@ -281,7 +283,7 @@ class ReservationController extends Controller
 
 
 
-    public function storemobile(Request $request)
+    public function storemobile(Request $request, StudioReservationConflictService $studioReservations)
     {
         // Check authentication
         $checkResult = $this->checkRequestedUser();
@@ -299,8 +301,8 @@ class ReservationController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'day' => 'required|date',
-            'start' => 'required|string',
-            'end' => 'required|string',
+            'start' => StudioReservationConflictService::timeRules(),
+            'end' => StudioReservationConflictService::timeRules(),
             'team_members' => 'nullable|array',
             'team_members.*' => 'integer|exists:users,id',
             'equipment' => 'nullable|array',
@@ -319,41 +321,26 @@ class ReservationController extends Controller
         }
 
         try {
-            $reservationId = null;
+            $reservationId = $studioReservations->createPending([
+                'studio_id' => (int) $validated['studio_id'],
+                'user_id' => (int) $validated['user_id'],
+                'title' => $validated['title'],
+                'description' => $validated['description'] ?? '',
+                'day' => $validated['day'],
+                'start' => $validated['start'],
+                'end' => $validated['end'],
+                'type' => 'studio',
+            ]);
 
-            DB::transaction(function () use ($validated, &$reservationId) {
-                $lastId = (int) (DB::table('reservations')->max('id') ?? 0);
-                $reservationId = $lastId + 1;
-
-                DB::table('reservations')->insert([
-                    'id' => $reservationId,
-                    'studio_id' => $validated['studio_id'],
-                    'user_id' => $validated['user_id'],
-                    'title' => $validated['title'],
-                    'description' => $validated['description'] ?? '',
-                    'day' => $validated['day'],
-                    'start' => $validated['start'],
-                    'end' => $validated['end'],
-                    'type' => 'studio',
-                    'approved' => 0,
-                    'canceled' => 0,
-                    'passed' => 0,
-                    'start_signed' => 0,
-                    'end_signed' => 0,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
+            DB::transaction(function () use ($validated, $reservationId) {
                 // Send Expo push notification to studio responsables
                 try {
                     \Illuminate\Support\Facades\Log::info('Attempting to send push notification for reservation (API)', [
                         'reservation_id' => $reservationId,
                         'user_id' => $validated['user_id'],
                     ]);
-                    
-                    // Get all users who should be notified (studio responsables and admins)
-                    // Roles can be stored as string or JSON array, so we need to check both
-                    $notifyUsers = \App\Models\User::where(function($query) {
+
+                    $notifyUsers = \App\Models\User::where(function ($query) {
                         $query->where('role', 'studio_responsable')
                             ->orWhereJsonContains('role', 'studio_responsable')
                             ->orWhere('role', 'admin')
@@ -361,41 +348,19 @@ class ReservationController extends Controller
                             ->orWhere('role', 'super_admin')
                             ->orWhereJsonContains('role', 'super_admin');
                     })->get();
-                    
-                    \Illuminate\Support\Facades\Log::info('Found users to notify for reservation (API)', [
-                        'count' => $notifyUsers->count(),
-                        'ids' => $notifyUsers->pluck('id')->toArray(),
-                        'emails' => $notifyUsers->pluck('email')->toArray(),
-                    ]);
-                    
+
                     $reservationUser = \App\Models\User::find($validated['user_id']);
-                    
+
                     if ($reservationUser) {
                         $reservationTitle = $validated['title'] ?? "Reservation #{$reservationId}";
                         $reservationMessage = "{$reservationUser->name} submitted a new reservation: {$reservationTitle}";
-                        
+
                         foreach ($notifyUsers as $notifyUser) {
-                            // Refresh user to get latest expo_push_token
                             $notifyUser->refresh();
-                            
-                            \Illuminate\Support\Facades\Log::info('Processing user for push notification (API)', [
-                                'user_id' => $notifyUser->id,
-                                'user_email' => $notifyUser->email,
-                                'has_expo_token' => !empty($notifyUser->expo_push_token),
-                                'token_preview' => $notifyUser->expo_push_token ? substr($notifyUser->expo_push_token, 0, 30) . '...' : null,
-                            ]);
-                            
+
                             if ($notifyUser->expo_push_token) {
                                 $pushService = app(\App\Services\ExpoPushNotificationService::class);
-                                
-                                \Illuminate\Support\Facades\Log::info('Sending push notification for reservation (API)', [
-                                    'notify_user_id' => $notifyUser->id,
-                                    'reservation_id' => $reservationId,
-                                    'user_id' => $validated['user_id'],
-                                    'message' => $reservationMessage,
-                                ]);
-                                
-                                $success = $pushService->sendToUser($notifyUser, 'New Reservation', $reservationMessage, [
+                                $pushService->sendToUser($notifyUser, 'New Reservation', $reservationMessage, [
                                     'type' => 'reservation',
                                     'reservation_id' => $reservationId,
                                     'user_id' => $validated['user_id'],
@@ -405,42 +370,17 @@ class ReservationController extends Controller
                                     'start' => $validated['start'],
                                     'end' => $validated['end'],
                                 ]);
-                                
-                                if (!$success) {
-                                    \Illuminate\Support\Facades\Log::warning('Push notification send returned false for reservation (API)', [
-                                        'notify_user_id' => $notifyUser->id,
-                                        'reservation_id' => $reservationId,
-                                    ]);
-                                } else {
-                                    \Illuminate\Support\Facades\Log::info('Push notification sent successfully for reservation (API)', [
-                                        'notify_user_id' => $notifyUser->id,
-                                        'reservation_id' => $reservationId,
-                                    ]);
-                                }
-                            } else {
-                                \Illuminate\Support\Facades\Log::info('User does not have Expo push token, skipping push notification (API)', [
-                                    'user_id' => $notifyUser->id,
-                                    'user_email' => $notifyUser->email,
-                                ]);
                             }
                         }
-                    } else {
-                        \Illuminate\Support\Facades\Log::warning('Reservation user not found for push notification (API)', [
-                            'user_id' => $validated['user_id'],
-                        ]);
                     }
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to send Expo push notification for reservation (API)', [
                         'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString(),
                         'reservation_id' => $reservationId,
                     ]);
-                    // Don't fail reservation creation if push fails
                 }
 
-
-                // Insert team members
-                if (!empty($validated['team_members'])) {
+                if (! empty($validated['team_members'])) {
                     $teamData = array_map(function ($userId) use ($reservationId) {
                         return [
                             'reservation_id' => $reservationId,
@@ -453,8 +393,7 @@ class ReservationController extends Controller
                     DB::table('reservation_teams')->insert($teamData);
                 }
 
-                // Insert equipment
-                if (!empty($validated['equipment'])) {
+                if (! empty($validated['equipment'])) {
                     $equipmentData = array_map(function ($equipmentId) use ($validated, $reservationId) {
                         return [
                             'reservation_id' => $reservationId,
@@ -471,16 +410,17 @@ class ReservationController extends Controller
                 }
             });
 
-            // Return JSON for API
             return response()->json([
                 'success' => true,
                 'reservation_id' => $reservationId,
                 'message' => 'Reservation created successfully',
             ]);
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create reservation: ' . $e->getMessage(),
+                'message' => 'Failed to create reservation: '.$e->getMessage(),
             ], 500);
         }
     }

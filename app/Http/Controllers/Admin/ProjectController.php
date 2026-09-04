@@ -863,7 +863,7 @@ class ProjectController extends Controller
     public function uploadAttachment(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|max:10240|mimes:jpeg,jpg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,zip,mp3,mp4,webm',
+            'file' => 'required|file|max:10240|mimes:jpeg,jpg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,mp3,mp4,webm',
             'project_id' => 'required|exists:projects,id',
         ]);
 
@@ -882,7 +882,7 @@ class ProjectController extends Controller
 
             // Generate unique filename
             $filename = time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
-            $path = $file->storeAs('attachments', $filename, 'public');
+            $path = $file->storeAs('attachments', $filename, 'attachments');
 
             // Create attachment record
             $attachment = $project->attachments()->create([
@@ -914,8 +914,9 @@ class ProjectController extends Controller
                 return redirect()->back()->with('error', 'You do not have permission to delete this file.');
             }
 
-            // Delete file from storage
-            if ($attachment->path && Storage::disk('public')->exists($attachment->path)) {
+            // Delete file from storage (private disk first; legacy public fallback)
+            if ($attachment->path) {
+                Storage::disk('attachments')->delete($attachment->path);
                 Storage::disk('public')->delete($attachment->path);
             }
 

@@ -154,13 +154,14 @@ export default function MessageItem({
                     {message.attachment_type === 'image' && message.attachment_path && (
                         <div
                             className="mt-1 cursor-pointer overflow-hidden rounded-lg"
-                            onClick={() => onPreviewAttachment({ type: 'image', path: message.attachment_path, name: message.attachment_name })}
+                            onClick={() => onPreviewAttachment({ type: 'image', path: message.attachment_url || message.attachment_path, name: message.attachment_name })}
                         >
                             <img
                                 src={
-                                    message.attachment_path.startsWith('/storage/') || message.attachment_path.startsWith('blob:')
+                                    message.attachment_url ||
+                                    (message.attachment_path.startsWith('/storage/') || message.attachment_path.startsWith('blob:')
                                         ? message.attachment_path
-                                        : `/storage/${message.attachment_path}`
+                                        : `/storage/${message.attachment_path}`)
                                 }
                                 alt="Attachment"
                                 className="max-h-64 max-w-full rounded-lg object-cover transition-opacity hover:opacity-90"
@@ -174,13 +175,14 @@ export default function MessageItem({
                     {message.attachment_type === 'video' && message.attachment_path && (
                         <div
                             className="group/video relative mt-1 cursor-pointer overflow-hidden rounded-lg"
-                            onClick={() => onPreviewAttachment({ type: 'video', path: message.attachment_path, name: message.attachment_name })}
+                            onClick={() => onPreviewAttachment({ type: 'video', path: message.attachment_url || message.attachment_path, name: message.attachment_name })}
                         >
                             <video
                                 src={
-                                    message.attachment_path.startsWith('/storage/') || message.attachment_path.startsWith('blob:')
+                                    message.attachment_url ||
+                                    (message.attachment_path.startsWith('/storage/') || message.attachment_path.startsWith('blob:')
                                         ? message.attachment_path
-                                        : `/storage/${message.attachment_path}`
+                                        : `/storage/${message.attachment_path}`)
                                 }
                                 className="max-h-64 max-w-full rounded-lg object-contain"
                             />
@@ -195,7 +197,7 @@ export default function MessageItem({
 
                     {message.attachment_type === 'file' && message.attachment_path && (
                         <button
-                            onClick={() => onDownloadAttachment(message.attachment_path, message.attachment_name)}
+                            onClick={() => onDownloadAttachment(message.attachment_url || message.attachment_path, message.attachment_name)}
                             className={cn(
                                 'mt-2 flex w-full items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-alpha/10',
                                 isCurrentUser ? 'border-beta/20 bg-beta/10 text-beta' : 'border-border bg-background',
@@ -215,7 +217,7 @@ export default function MessageItem({
                     {message.attachment_type === 'audio' && message.attachment_path && (
                         <div className={cn('mt-2 flex items-center gap-3 rounded-lg p-3', isCurrentUser ? 'bg-beta/10' : 'bg-background')}>
                             <button
-                                onClick={() => onPlayAudio(message.attachment_path, message.id)}
+                                onClick={() => onPlayAudio(message.attachment_url || message.attachment_path, message.id)}
                                 className={cn(
                                     'rounded-full p-2.5 transition-all hover:scale-110',
                                     isCurrentUser ? 'bg-alpha text-black hover:bg-alpha/90' : 'bg-muted hover:bg-accent',
@@ -226,9 +228,10 @@ export default function MessageItem({
                             <audio
                                 id={`audio-${message.id}`}
                                 src={
-                                    message.attachment_path.startsWith('/storage/') || message.attachment_path.startsWith('blob:')
+                                    message.attachment_url ||
+                                    (message.attachment_path.startsWith('/storage/') || message.attachment_path.startsWith('blob:')
                                         ? message.attachment_path
-                                        : `/storage/${message.attachment_path}`
+                                        : `/storage/${message.attachment_path}`)
                                 }
                                 className="hidden"
                             />

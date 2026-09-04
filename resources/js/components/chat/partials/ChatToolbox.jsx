@@ -3,6 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { Eye, FileIcon, Image as ImageIcon, Link as LinkIcon, Paperclip, Video as VideoIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { resolveAttachmentUrl } from '../resolveAttachmentUrl';
 
 // Toolbox component dial attachments w posts
 export default function ChatToolbox({ conversationId, otherUserId, onPreviewAttachment, messages = [] }) {
@@ -24,7 +25,7 @@ export default function ChatToolbox({ conversationId, otherUserId, onPreviewAtta
                 .map((msg) => ({
                     id: msg.id,
                     type: msg.attachment_type,
-                    path: msg.attachment_path,
+                    path: msg.attachment_url || msg.attachment_path,
                     name: msg.attachment_name,
                     created_at: msg.created_at,
                 }));
@@ -115,21 +116,13 @@ export default function ChatToolbox({ conversationId, otherUserId, onPreviewAtta
                                     >
                                         {attachment.type === 'image' ? (
                                             <img
-                                                src={
-                                                    attachment.path.startsWith('/storage/') || attachment.path.startsWith('blob:')
-                                                        ? attachment.path
-                                                        : `/storage/${attachment.path}`
-                                                }
+                                                src={resolveAttachmentUrl(attachment.path)}
                                                 alt={attachment.name}
                                                 className="h-full w-full object-cover"
                                             />
                                         ) : attachment.type === 'video' ? (
                                             <video
-                                                src={
-                                                    attachment.path.startsWith('/storage/') || attachment.path.startsWith('blob:')
-                                                        ? attachment.path
-                                                        : `/storage/${attachment.path}`
-                                                }
+                                                src={resolveAttachmentUrl(attachment.path)}
                                                 className="h-full w-full object-cover"
                                             />
                                         ) : (

@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class TaskController extends Controller
 {
@@ -615,13 +616,13 @@ class TaskController extends Controller
             $this->ensureCanWorkOnTask($task);
 
             $request->validate([
-                'file' => 'required|file|max:10240|mimes:jpeg,jpg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,zip,mp3,mp4,webm',
+                'file' => 'required|file|max:10240|mimes:jpeg,jpg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,mp3,mp4,webm',
                 'name' => 'nullable|string|max:255',
             ]);
 
             $file = $request->file('file');
             $filename = time().'_'.$file->getClientOriginalName();
-            $path = $file->storeAs('task-attachments', $filename, 'public');
+            $path = $file->storeAs('task-attachments', $filename, 'attachments');
 
             $attachments = $task->attachments ?? [];
             $attachments[] = [
@@ -657,6 +658,11 @@ class TaskController extends Controller
             ]);
 
             $attachments = $task->attachments ?? [];
+            $removed = collect($attachments)->firstWhere('id', $request->attachment_id);
+            if ($removed && ! empty($removed['path'])) {
+                Storage::disk('attachments')->delete($removed['path']);
+                Storage::disk('public')->delete($removed['path']);
+            }
             $attachments = array_filter($attachments, fn ($attachment) => $attachment['id'] !== $request->attachment_id);
 
             $task->update(['attachments' => array_values($attachments)]);
@@ -667,6 +673,33 @@ class TaskController extends Controller
             return redirect()->back()
                 ->with('error', 'Failed to remove attachment: '.$e->getMessage());
         }
+    }
+
+    /**
+     * Stream a task attachment for project members only.
+     */
+    public function downloadAttachment(Task $task, string $attachmentId)
+    {
+        $this->ensureCanWorkOnTask($task);
+
+        $attachment = collect($task->attachments ?? [])->firstWhere('id', $attachmentId);
+        if (! $attachment || empty($attachment['path'])) {
+            abort(404);
+        }
+
+        $path = $attachment['path'];
+        $name = $attachment['name'] ?? basename($path);
+        $private = Storage::disk('attachments');
+        if ($private->exists($path)) {
+            return $private->download($path, $name);
+        }
+
+        $public = Storage::disk('public');
+        if ($public->exists($path)) {
+            return $public->download($path, $name);
+        }
+
+        abort(404);
     }
 
     /**
