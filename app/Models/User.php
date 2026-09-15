@@ -682,6 +682,27 @@ class User extends Authenticatable
             ->all();
     }
 
+    /**
+     * Authors hidden from this user's social surfaces (I blocked them, or they blocked me).
+     *
+     * @return array<int>
+     */
+    public function excludedAuthorIds(): array
+    {
+        if (! Schema::hasTable('user_blocks')) {
+            return [];
+        }
+
+        $blockedByMe = $this->blockedUserIds();
+        $blockedMe = UserBlock::query()
+            ->where('blocked_id', $this->id)
+            ->pluck('blocker_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        return array_values(array_unique(array_merge($blockedByMe, $blockedMe)));
+    }
+
     public function experiences()
     {
         return $this->belongsToMany(Experience::class)->withTimestamps();

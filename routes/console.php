@@ -15,6 +15,10 @@ Schedule::command('reservations:check-end-times')
 
 Schedule::command('jobs:close-expired')->daily();
 
+Schedule::command('stories:purge-expired')
+    ->hourly()
+    ->withoutOverlapping();
+
 $scheduleTimezone = config('app.timezone', 'Africa/Casablanca');
 
 // Same command at each slot open — job resolves morning|lunch|evening via currentSlot()

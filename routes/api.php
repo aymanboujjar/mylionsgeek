@@ -103,22 +103,29 @@ Route::middleware('auth:sanctum')->prefix('mobile')->group(function () {
 
     // Stories routes
     Route::get('/stories', [\App\Http\Controllers\API\StoryController::class, 'index'])->name('stories.index');
+    Route::get('/stories/archive', [\App\Http\Controllers\API\StoryController::class, 'archive'])->name('stories.archive');
     Route::post('/stories', [\App\Http\Controllers\API\StoryController::class, 'store'])->name('stories.store');
     Route::post('/stories/{id}/view', [\App\Http\Controllers\API\StoryController::class, 'view'])->name('stories.view');
     Route::delete('/stories/{id}', [\App\Http\Controllers\API\StoryController::class, 'destroy'])->name('stories.destroy');
-    // Phase 2: engagement
     Route::get('/stories/{id}/viewers', [\App\Http\Controllers\API\StoryController::class, 'viewers'])->name('stories.viewers');
     Route::post('/stories/{id}/react', [\App\Http\Controllers\API\StoryController::class, 'react'])->name('stories.react');
     Route::delete('/stories/{id}/react', [\App\Http\Controllers\API\StoryController::class, 'unreact'])->name('stories.unreact');
     Route::post('/stories/{id}/reply', [\App\Http\Controllers\API\StoryController::class, 'reply'])->name('stories.reply');
     Route::post('/stories/{id}/mention-repost', [\App\Http\Controllers\API\StoryController::class, 'mentionRepost'])->name('stories.mentionRepost');
     Route::post('/stories/{id}/capture-event', [\App\Http\Controllers\API\StoryController::class, 'reportCapture'])->name('stories.captureEvent');
+    Route::post('/stories/{id}/report', [\App\Http\Controllers\API\StoryController::class, 'report'])->name('stories.report');
+    Route::post('/stories/{id}/interact', [\App\Http\Controllers\API\StoryController::class, 'interact'])->name('stories.interact');
+    Route::get('/stories/{id}/interactions', [\App\Http\Controllers\API\StoryController::class, 'interactionResults'])->name('stories.interactions');
+    Route::post('/stories/{id}/reshare', [\App\Http\Controllers\API\StoryController::class, 'reshare'])->name('stories.reshare');
+    Route::post('/stories/{id}/share', [\App\Http\Controllers\API\StoryController::class, 'share'])->name('stories.share');
+    Route::post('/story-reports/{id}/accept', [\App\Http\Controllers\API\StoryController::class, 'acceptReport'])->name('stories.acceptReport');
+    Route::post('/story-reports/{id}/refuse', [\App\Http\Controllers\API\StoryController::class, 'refuseReport'])->name('stories.refuseReport');
 
     // Phase 3: highlights
     Route::get('/users/{userId}/highlights', [\App\Http\Controllers\API\HighlightController::class, 'indexForUser'])->name('highlights.indexForUser');
     Route::get('/highlights/{id}', [\App\Http\Controllers\API\HighlightController::class, 'show'])->name('highlights.show');
     Route::post('/highlights', [\App\Http\Controllers\API\HighlightController::class, 'store'])->name('highlights.store');
-    Route::patch('/highlights/{id}', [\App\Http\Controllers\API\HighlightController::class, 'update'])->name('highlights.update');
+    Route::match(['patch', 'put'], '/highlights/{id}', [\App\Http\Controllers\API\HighlightController::class, 'update'])->name('highlights.update');
     Route::delete('/highlights/{id}', [\App\Http\Controllers\API\HighlightController::class, 'destroy'])->name('highlights.destroy');
     Route::post('/highlights/{id}/stories', [\App\Http\Controllers\API\HighlightController::class, 'addStory'])->name('highlights.addStory');
     Route::delete('/highlights/{id}/stories/{storyId}', [\App\Http\Controllers\API\HighlightController::class, 'removeStory'])->name('highlights.removeStory');

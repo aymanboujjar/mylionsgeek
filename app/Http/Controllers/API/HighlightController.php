@@ -41,7 +41,19 @@ class HighlightController extends Controller
         ];
 
         if ($includeStories) {
-            $payload['stories'] = $h->stories->map(function (Story $s) {
+            $payload['stories'] = $h->stories->map(function (Story $s) use ($authUserId, $h) {
+                $isOwner = (int) $h->user_id === $authUserId;
+                $overlays = is_array($s->overlays) ? $s->overlays : [];
+                if (!$isOwner) {
+                    $overlays = array_map(function ($o) {
+                        if (is_array($o) && ($o['type'] ?? '') === 'quiz') {
+                            unset($o['correct_index']);
+                        }
+                        return $o;
+                    }, $overlays);
+                }
+                $interactions = $s->relationLoaded('interactions') ? $s->interactions : collect();
+
                 return [
                     'id'          => (int) $s->id,
                     'media_url'   => $this->publicUrl($s->media_path),
@@ -50,7 +62,32 @@ class HighlightController extends Controller
                     'width'       => $s->width,
                     'height'      => $s->height,
                     'created_at'  => optional($s->created_at)->toIso8601String(),
-                    'overlays'    => is_array($s->overlays) ? $s->overlays : [],
+                    'overlays'    => array_values($overlays),
+                    'interactions'=> $interactions->map(function ($i) use ($authUserId, $isOwner) {
+                        $payload = is_array($i->payload) ? $i->payload : [];
+                        $correct = $payload['correct_index'] ?? null;
+                        if (!$isOwner) {
+                            unset($payload['correct_index']);
+                        }
+                        $my = null;
+                        foreach ($i->responses ?? [] as $r) {
+                            if ((int) $r->user_id === $authUserId) {
+                                $my = $r->payload;
+                                break;
+                            }
+                        }
+                        $out = [
+                            'overlay_id' => $i->overlay_id,
+                            'type' => $i->type,
+                            'payload' => $payload,
+                            'my_response' => $my,
+                            'responses_count' => $i->responses ? $i->responses->count() : 0,
+                        ];
+                        if ($i->type === 'quiz' && is_array($my) && $correct !== null) {
+                            $out['is_correct'] = ((int) ($my['index'] ?? -1)) === (int) $correct;
+                        }
+                        return $out;
+                    })->values(),
                 ];
             })->values();
         }
@@ -95,8 +132,28 @@ class HighlightController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        $isOwn = (int) $userId === (int) $auth->id;
+
         $highlights = StoryHighlight::where('user_id', $userId)
-            ->withCount('items as stories_count')
+            ->withCount(['items as stories_count' => function ($q) use ($auth, $isOwn) {
+                if ($isOwn) {
+                    return;
+                }
+                $q->whereHas('story', function ($s) use ($auth) {
+                    $s->where(function ($w) use ($auth) {
+                        $w->where('stories.audience', 'public')
+                          ->orWhere(function ($qq) use ($auth) {
+                              $qq->where('stories.audience', 'close_friends')
+                                 ->whereExists(function ($e) use ($auth) {
+                                     $e->selectRaw('1')
+                                       ->from('close_friends')
+                                       ->whereColumn('close_friends.user_id', 'stories.user_id')
+                                       ->where('close_friends.friend_id', $auth->id);
+                                 });
+                          });
+                    });
+                });
+            }])
             ->orderByDesc('updated_at')
             ->get();
 
@@ -119,15 +176,29 @@ class HighlightController extends Controller
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
-        $highlight = StoryHighlight::with(['stories' => function ($q) {
-            $q->orderBy('story_highlight_items.position');
-        }])->find($id);
+        $highlight = StoryHighlight::with([
+            'stories' => function ($q) {
+                $q->orderBy('story_highlight_items.position');
+            },
+            'stories.interactions.responses',
+        ])->find($id);
 
         if (!$highlight) {
             return response()->json(['message' => 'Highlight not found'], 404);
         }
 
         $highlight->loadCount('items as stories_count');
+
+        $visibleStories = $highlight->stories
+            ->filter(function (Story $s) use ($auth, $highlight) {
+                if ((int) $highlight->user_id === (int) $auth->id) {
+                    return true;
+                }
+
+                return $s->isVisibleTo($auth);
+            })
+            ->values();
+        $highlight->setRelation('stories', $visibleStories);
 
         return response()->json([
             'highlight' => $this->mapHighlight($highlight, $auth->id, true),
