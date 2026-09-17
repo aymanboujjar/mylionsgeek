@@ -51,6 +51,7 @@ class User extends Authenticatable
         'last_online',
         'invite_source',
         'expo_push_token', // Expo push notification token
+        'apns_voip_token', // iOS PushKit VoIP token for CallKit cold-start
         // 'xp'
     ];
 

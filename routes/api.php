@@ -149,5 +149,7 @@ Route::middleware('auth:sanctum')->prefix('mobile')->group(function () {
     Route::get('/calls/{id}', [\App\Http\Controllers\API\CallController::class, 'show'])->name('calls.show');
     Route::post('/calls/{id}/accept', [\App\Http\Controllers\API\CallController::class, 'accept'])->name('calls.accept');
     Route::post('/calls/{id}/reject', [\App\Http\Controllers\API\CallController::class, 'reject'])->name('calls.reject');
+    Route::post('/calls/{id}/cancel', [\App\Http\Controllers\API\CallController::class, 'cancel'])->name('calls.cancel');
     Route::post('/calls/{id}/end', [\App\Http\Controllers\API\CallController::class, 'end'])->name('calls.end');
+    Route::post('/calls/{id}/token', [\App\Http\Controllers\API\CallController::class, 'token'])->name('calls.token');
 });

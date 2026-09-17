@@ -52,7 +52,7 @@ class AblyCapabilityService
                 $query->where('caller_id', $user->id)
                     ->orWhere('callee_id', $user->id);
             })
-            ->whereIn('status', [Call::STATUS_PENDING, Call::STATUS_ONGOING])
+            ->whereIn('status', [Call::STATUS_RINGING, Call::STATUS_ACCEPTED])
             ->whereNotNull('channel_name')
             ->pluck('channel_name');
 

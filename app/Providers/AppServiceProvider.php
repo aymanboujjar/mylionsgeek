@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Models\Call;
 use App\Models\Formation;
 use App\Models\Reservation;
 use App\Models\ReservationCowork;
+use App\Policies\CallPolicy;
 use App\Policies\FormationPolicy;
 use App\Services\FaceVerification\AwsRekognitionClient;
 use App\Services\FaceVerification\FaceVerificationService;
@@ -45,6 +47,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::policy(Formation::class, FormationPolicy::class);
+        Gate::policy(Call::class, CallPolicy::class);
 
         RateLimiter::for('events-info-read', function (Request $request) {
             return Limit::perMinute(60)->by((string) ($request->user()?->id ?: $request->ip()));

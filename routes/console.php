@@ -19,6 +19,10 @@ Schedule::command('stories:purge-expired')
     ->hourly()
     ->withoutOverlapping();
 
+Schedule::command('calls:mark-missed')
+    ->everyMinute()
+    ->withoutOverlapping();
+
 $scheduleTimezone = config('app.timezone', 'Africa/Casablanca');
 
 // Same command at each slot open — job resolves morning|lunch|evening via currentSlot()
