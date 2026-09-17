@@ -6,6 +6,7 @@ use Ably\AblyRest;
 use App\Models\Call;
 use App\Models\User;
 use App\Models\UserBlock;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
@@ -171,36 +172,58 @@ class CallService
      */
     public function accept(int $callId, User $acceptor): array
     {
-        $call = Call::findOrFail($callId);
-        if ((int) $call->callee_id !== (int) $acceptor->id) {
-            throw new \InvalidArgumentException('Only the callee can accept this call.');
-        }
-        if (! $call->isRinging()) {
-            throw new \InvalidArgumentException('Call is no longer ringing.');
-        }
+        // Token before status flip so Agora failure cannot leave a stuck "accepted" row.
+        $calleeToken = null;
+        $channelName = null;
+        $callType = null;
 
-        $now = now();
-        $call->update([
-            'status' => Call::STATUS_ACCEPTED,
-            'answered_at' => $now,
-            'started_at' => $call->started_at ?: $now,
-        ]);
-        $call->load(['caller', 'callee']);
+        $call = DB::transaction(function () use ($callId, $acceptor, &$calleeToken, &$channelName, &$callType) {
+            $call = Call::query()->whereKey($callId)->lockForUpdate()->firstOrFail();
 
-        $calleeToken = $this->agoraTokenService->generateRtcToken($call->channel_name, $call->callee_id);
-        if (! $calleeToken) {
-            throw new \RuntimeException('Failed to generate Agora token.');
-        }
+            if ((int) $call->callee_id !== (int) $acceptor->id) {
+                throw new \InvalidArgumentException('Only the callee can accept this call.');
+            }
+            if (! $call->isRinging()) {
+                throw new \InvalidArgumentException('Call is no longer ringing.');
+            }
+
+            $calleeToken = $this->agoraTokenService->generateRtcToken($call->channel_name, $call->callee_id);
+            if (! $calleeToken) {
+                throw new \RuntimeException('Failed to generate Agora token.');
+            }
+
+            $now = now();
+            $updated = Call::query()
+                ->whereKey($call->id)
+                ->where('status', Call::STATUS_RINGING)
+                ->update([
+                    'status' => Call::STATUS_ACCEPTED,
+                    'answered_at' => $now,
+                    'started_at' => $call->started_at ?: $now,
+                    'updated_at' => $now,
+                ]);
+
+            if ($updated !== 1) {
+                throw new \InvalidArgumentException('Call is no longer ringing.');
+            }
+
+            $call->refresh();
+            $call->load(['caller', 'callee']);
+            $channelName = $call->channel_name;
+            $callType = $call->type;
+
+            return $call;
+        });
 
         $this->publishToUserChannel($call->caller_id, 'call-accepted', [
             'call_id' => $call->id,
-            'channel_name' => $call->channel_name,
-            'call_type' => $call->type,
+            'channel_name' => $channelName,
+            'call_type' => $callType,
         ]);
 
         return [
             'call' => $call,
-            'channel_name' => $call->channel_name,
+            'channel_name' => $channelName,
             'token' => $calleeToken,
             'app_id' => config('services.agora.app_id'),
         ];
@@ -208,18 +231,33 @@ class CallService
 
     public function reject(int $callId, User $rejector): void
     {
-        $call = Call::findOrFail($callId);
-        if ((int) $call->callee_id !== (int) $rejector->id) {
-            throw new \InvalidArgumentException('Only the callee can reject this call.');
-        }
-        if (! $call->isRinging()) {
-            throw new \InvalidArgumentException('Call is no longer ringing.');
-        }
+        $call = DB::transaction(function () use ($callId, $rejector) {
+            $call = Call::query()->whereKey($callId)->lockForUpdate()->firstOrFail();
 
-        $call->update([
-            'status' => Call::STATUS_REJECTED,
-            'ended_at' => now(),
-        ]);
+            if ((int) $call->callee_id !== (int) $rejector->id) {
+                throw new \InvalidArgumentException('Only the callee can reject this call.');
+            }
+            if (! $call->isRinging()) {
+                throw new \InvalidArgumentException('Call is no longer ringing.');
+            }
+
+            $updated = Call::query()
+                ->whereKey($call->id)
+                ->where('status', Call::STATUS_RINGING)
+                ->update([
+                    'status' => Call::STATUS_REJECTED,
+                    'ended_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            if ($updated !== 1) {
+                throw new \InvalidArgumentException('Call is no longer ringing.');
+            }
+
+            $call->refresh();
+
+            return $call;
+        });
 
         $this->publishToUserChannel($call->caller_id, 'call-rejected', [
             'call_id' => $call->id,
@@ -228,18 +266,33 @@ class CallService
 
     public function cancel(int $callId, User $caller): void
     {
-        $call = Call::findOrFail($callId);
-        if ((int) $call->caller_id !== (int) $caller->id) {
-            throw new \InvalidArgumentException('Only the caller can cancel this call.');
-        }
-        if (! $call->isRinging()) {
-            throw new \InvalidArgumentException('Call is no longer ringing.');
-        }
+        $call = DB::transaction(function () use ($callId, $caller) {
+            $call = Call::query()->whereKey($callId)->lockForUpdate()->firstOrFail();
 
-        $call->update([
-            'status' => Call::STATUS_CANCELLED,
-            'ended_at' => now(),
-        ]);
+            if ((int) $call->caller_id !== (int) $caller->id) {
+                throw new \InvalidArgumentException('Only the caller can cancel this call.');
+            }
+            if (! $call->isRinging()) {
+                throw new \InvalidArgumentException('Call is no longer ringing.');
+            }
+
+            $updated = Call::query()
+                ->whereKey($call->id)
+                ->where('status', Call::STATUS_RINGING)
+                ->update([
+                    'status' => Call::STATUS_CANCELLED,
+                    'ended_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            if ($updated !== 1) {
+                throw new \InvalidArgumentException('Call is no longer ringing.');
+            }
+
+            $call->refresh();
+
+            return $call;
+        });
 
         $this->publishToUserChannel($call->callee_id, 'call-cancelled', [
             'call_id' => $call->id,
@@ -252,46 +305,100 @@ class CallService
 
     public function end(int $callId, User $user): void
     {
-        $call = Call::findOrFail($callId);
-        if (! $call->isParticipant((int) $user->id)) {
+        $existing = Call::query()->findOrFail($callId);
+        if (! $existing->isParticipant((int) $user->id)) {
             throw new \InvalidArgumentException('You are not a participant of this call.');
         }
 
         // Caller hanging up while still ringing = cancel.
-        if ($call->isRinging() && (int) $call->caller_id === (int) $user->id) {
+        if ($existing->isRinging() && (int) $existing->caller_id === (int) $user->id) {
             $this->cancel($callId, $user);
 
             return;
         }
 
         // Callee hanging up while ringing = reject.
-        if ($call->isRinging() && (int) $call->callee_id === (int) $user->id) {
+        if ($existing->isRinging() && (int) $existing->callee_id === (int) $user->id) {
             $this->reject($callId, $user);
 
             return;
         }
 
-        if ($call->status !== Call::STATUS_ACCEPTED) {
-            throw new \InvalidArgumentException('Call is not active.');
-        }
+        $otherUserId = null;
+        $call = DB::transaction(function () use ($callId, $user, &$otherUserId) {
+            $call = Call::query()->whereKey($callId)->lockForUpdate()->firstOrFail();
 
-        $endedAt = now();
-        $answeredAt = $call->answered_at ?: $call->started_at;
-        $duration = $answeredAt ? max(0, $endedAt->diffInSeconds($answeredAt)) : null;
+            if (! $call->isParticipant((int) $user->id)) {
+                throw new \InvalidArgumentException('You are not a participant of this call.');
+            }
+            if ($call->status !== Call::STATUS_ACCEPTED) {
+                throw new \InvalidArgumentException('Call is not active.');
+            }
 
-        $call->update([
-            'status' => Call::STATUS_ENDED,
-            'ended_at' => $endedAt,
-            'duration' => $duration,
-        ]);
+            $endedAt = now();
+            $answeredAt = $call->answered_at ?: $call->started_at;
+            $duration = $answeredAt ? max(0, $endedAt->diffInSeconds($answeredAt)) : null;
 
-        $otherUserId = (int) $call->caller_id === (int) $user->id
-            ? (int) $call->callee_id
-            : (int) $call->caller_id;
+            $updated = Call::query()
+                ->whereKey($call->id)
+                ->where('status', Call::STATUS_ACCEPTED)
+                ->update([
+                    'status' => Call::STATUS_ENDED,
+                    'ended_at' => $endedAt,
+                    'duration' => $duration,
+                    'updated_at' => $endedAt,
+                ]);
 
-        $this->publishToUserChannel($otherUserId, 'call-ended', [
+            if ($updated !== 1) {
+                throw new \InvalidArgumentException('Call is not active.');
+            }
+
+            $call->refresh();
+            $otherUserId = (int) $call->caller_id === (int) $user->id
+                ? (int) $call->callee_id
+                : (int) $call->caller_id;
+
+            return $call;
+        });
+
+        $this->publishToUserChannel((int) $otherUserId, 'call-ended', [
             'call_id' => $call->id,
         ]);
+    }
+
+    /**
+     * Issue a fresh Agora RTC token for a participant of an active call.
+     *
+     * @return array{token: string, channel_name: string, app_id: string|null, uid: int, expires_in: int}
+     */
+    public function token(int $callId, User $user): array
+    {
+        $call = Call::findOrFail($callId);
+        if (! $call->isParticipant((int) $user->id)) {
+            throw new \InvalidArgumentException('You are not a participant of this call.');
+        }
+
+        $isCaller = (int) $call->caller_id === (int) $user->id;
+        $canJoin = $call->status === Call::STATUS_ACCEPTED
+            || ($call->isRinging() && $isCaller);
+
+        if (! $canJoin) {
+            throw new \InvalidArgumentException('Call is not joinable.');
+        }
+
+        $token = $this->agoraTokenService->generateRtcToken($call->channel_name, $user->id);
+        if (! $token) {
+            throw new \RuntimeException('Failed to generate Agora token.');
+        }
+
+        return [
+            'token' => $token,
+            'channel_name' => $call->channel_name,
+            'app_id' => config('services.agora.app_id'),
+            'uid' => (int) $user->id,
+            'expires_in' => 3600,
+            'call_type' => $call->type,
+        ];
     }
 
     /**
@@ -389,36 +496,6 @@ class CallService
         }
 
         return $count;
-    }
-
-    /**
-     * Issue a fresh Agora RTC token for a participant of an active call.
-     *
-     * @return array{token: string, channel_name: string, app_id: string|null, uid: int, expires_in: int}
-     */
-    public function token(int $callId, User $user): array
-    {
-        $call = Call::findOrFail($callId);
-        if (! $call->isParticipant((int) $user->id)) {
-            throw new \InvalidArgumentException('You are not a participant of this call.');
-        }
-        if (! $call->isActive()) {
-            throw new \InvalidArgumentException('Call is not joinable.');
-        }
-
-        $token = $this->agoraTokenService->generateRtcToken($call->channel_name, $user->id);
-        if (! $token) {
-            throw new \RuntimeException('Failed to generate Agora token.');
-        }
-
-        return [
-            'token' => $token,
-            'channel_name' => $call->channel_name,
-            'app_id' => config('services.agora.app_id'),
-            'uid' => (int) $user->id,
-            'expires_in' => 3600,
-            'call_type' => $call->type,
-        ];
     }
 
     public function history(User $user, int $perPage = 20)

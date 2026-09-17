@@ -28,8 +28,11 @@ class Call extends Model
 
     public const RING_TIMEOUT_SECONDS = 45;
 
-    /** Auto-end accepted calls with no hangup after this long (crash / force-quit safety). */
-    public const ACCEPTED_TIMEOUT_SECONDS = 3600;
+    /**
+     * Auto-end accepted calls with no hangup after this long (crash / force-quit safety).
+     * Long enough for legitimate meetings; still clears abandoned rows.
+     */
+    public const ACCEPTED_TIMEOUT_SECONDS = 28800;
 
     protected $fillable = [
         'caller_id',

@@ -287,3 +287,34 @@ test('participant can get token for active call', function () {
         ->assertOk()
         ->assertJsonStructure(['token', 'channel_name', 'uid']);
 });
+
+test('callee cannot get agora token while call is still ringing', function () {
+    $caller = callUser();
+    $callee = callUser();
+
+    $callId = $this->actingAs($caller, 'sanctum')
+        ->postJson('/api/mobile/calls/initiate', ['callee_id' => $callee->id])
+        ->json('call_id');
+
+    $this->actingAs($callee, 'sanctum')
+        ->postJson("/api/mobile/calls/{$callId}/token")
+        ->assertForbidden();
+});
+
+test('callee can get agora token after accepting', function () {
+    $caller = callUser();
+    $callee = callUser();
+
+    $callId = $this->actingAs($caller, 'sanctum')
+        ->postJson('/api/mobile/calls/initiate', ['callee_id' => $callee->id])
+        ->json('call_id');
+
+    $this->actingAs($callee, 'sanctum')
+        ->postJson("/api/mobile/calls/{$callId}/accept")
+        ->assertOk();
+
+    $this->actingAs($callee, 'sanctum')
+        ->postJson("/api/mobile/calls/{$callId}/token")
+        ->assertOk()
+        ->assertJsonStructure(['token', 'channel_name', 'uid']);
+});

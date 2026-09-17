@@ -34,6 +34,17 @@ class CallPolicy
 
     public function token(User $user, Call $call): bool
     {
-        return $call->isParticipant((int) $user->id) && $call->isActive();
+        if (! $call->isParticipant((int) $user->id)) {
+            return false;
+        }
+
+        // Accepted: both sides may refresh Agora tokens.
+        if ($call->status === Call::STATUS_ACCEPTED) {
+            return true;
+        }
+
+        // Ringing: only the caller (who already has an initiate token) may refresh.
+        // Callee must accept before joining media.
+        return $call->isRinging() && (int) $call->caller_id === (int) $user->id;
     }
 }
