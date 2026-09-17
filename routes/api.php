@@ -14,7 +14,8 @@ use Illuminate\Http\Request;
 
 
 
-Route::get('/reservations/{id}', [ReservationController::class, 'show']);
+Route::get('/reservations/{id}', [ReservationController::class, 'show'])
+    ->middleware('auth:sanctum');
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
@@ -28,6 +29,14 @@ Route::post('/mobile/login', [MobileAuthController::class, 'login'])
 Route::post('/mobile/forgot-password', [MobileAuthController::class, 'forgot'])
     ->middleware('throttle:mobile-forgot-password');
 
+// Signed close-friends story media (no Sanctum; signature is the auth).
+Route::get('/mobile/stories/{story}/file', [\App\Http\Controllers\API\StoryController::class, 'streamMedia'])
+    ->middleware('signed')
+    ->name('mobile.stories.file');
+Route::get('/mobile/stories/asset', [\App\Http\Controllers\API\StoryController::class, 'streamAsset'])
+    ->middleware('signed')
+    ->name('mobile.stories.asset');
+
 // Mobile app version check (public — no auth required)
 Route::get('/mobile/app-version', [AppVersionController::class, 'show']);
 
@@ -39,9 +48,11 @@ require __DIR__ . '/api/events-info.php';
 require __DIR__ . '/api/internal.php';
 
 Route::get('/users', [ReservationController::class, 'getUserss'])
+    ->middleware('auth:sanctum')
     ->name('admin.api.users');
 
 Route::get('/equipment', [ReservationController::class, 'getEquipment'])
+    ->middleware('auth:sanctum')
     ->name('admin.api.equipment');
 
 Route::get('/places', [PlacesController::class, 'getPlacesJson'])

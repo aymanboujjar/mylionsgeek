@@ -233,7 +233,8 @@ class CallController extends Controller
                 'clientId' => (string) $user->id,
             ]);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed to generate token: '.$e->getMessage()], 500);
+            Log::error('Call Ably token failed: '.$e->getMessage());
+            return response()->json(['error' => 'Failed to generate token'], 500);
         }
     }
 }

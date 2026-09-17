@@ -62,11 +62,21 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('mobile-login', function (Request $request) {
-            return Limit::perMinute(5)->by(self::mobileAuthThrottleKey($request));
+            $email = strtolower((string) $request->input('email', ''));
+
+            return [
+                Limit::perMinute(5)->by($email !== '' ? 'mobile-login-email:'.$email : 'mobile-login-ip:'.$request->ip()),
+                Limit::perMinute(20)->by('mobile-login-ip:'.$request->ip()),
+            ];
         });
 
         RateLimiter::for('mobile-forgot-password', function (Request $request) {
-            return Limit::perMinute(6)->by(self::mobileAuthThrottleKey($request));
+            $email = strtolower((string) $request->input('email', ''));
+
+            return [
+                Limit::perMinute(3)->by($email !== '' ? 'mobile-forgot-email:'.$email : 'mobile-forgot-ip:'.$request->ip()),
+                Limit::perMinute(10)->by('mobile-forgot-ip:'.$request->ip()),
+            ];
         });
 
         Inertia::share([
@@ -87,10 +97,5 @@ class AppServiceProvider extends ServiceProvider
                 ];
             },
         ]);
-    }
-
-    private static function mobileAuthThrottleKey(Request $request): string
-    {
-        return strtolower((string) $request->input('email', '')).'|'.$request->ip();
     }
 }

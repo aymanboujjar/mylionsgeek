@@ -22,16 +22,131 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
 
 class StoryController extends Controller
 {
     private const STORIES_DIR = 'stories';
+    private const STORIES_PRIVATE_DISK = 'stories';
     private const TTL_HOURS = 24;
     private const MAX_PHOTO_BYTES = 10 * 1024 * 1024;  // 10 MB
     private const MAX_VIDEO_BYTES = 50 * 1024 * 1024;  // 50 MB
     private const MAX_VIDEO_DURATION_MS = 60_000;       // 60s
+    private const CLOSE_FRIENDS_URL_TTL_MINUTES = 1500; // ~25h covers story TTL + clock skew
+
+    private function storyDiskForAudience(?string $audience): string
+    {
+        return ($audience ?: 'public') === 'close_friends'
+            ? self::STORIES_PRIVATE_DISK
+            : 'public';
+    }
+
+    private function publicUrl(string $path): string
+    {
+        return url('storage/' . ltrim($path, '/'));
+    }
+
+    /**
+     * Close-friends media is never a stable public /storage URL.
+     * Clients receive a short-lived signed URL instead.
+     */
+    private function mediaUrl(Story $s): string
+    {
+        $path = ltrim((string) $s->media_path, '/');
+        if ($path === '') {
+            return '';
+        }
+
+        if (($s->audience ?: 'public') === 'close_friends') {
+            return URL::temporarySignedRoute(
+                'mobile.stories.file',
+                now()->addMinutes(self::CLOSE_FRIENDS_URL_TTL_MINUTES),
+                ['story' => $s->id]
+            );
+        }
+
+        return $this->publicUrl($path);
+    }
+
+    private function resolveStoryMediaDisk(string $relative): ?string
+    {
+        $relative = ltrim($relative, '/');
+        foreach ([self::STORIES_PRIVATE_DISK, 'public'] as $disk) {
+            if (Storage::disk($disk)->exists($relative)) {
+                return $disk;
+            }
+        }
+
+        return null;
+    }
+
+    private function copyStoryMedia(string $src, string $dest, string $destDisk = 'public'): bool
+    {
+        $srcDisk = $this->resolveStoryMediaDisk($src);
+        if (! $srcDisk) {
+            return false;
+        }
+        Storage::disk($destDisk)->put($dest, Storage::disk($srcDisk)->get(ltrim($src, '/')));
+
+        return true;
+    }
+
+    private function deleteStoryMediaFile(?string $path): void
+    {
+        if (!$path) {
+            return;
+        }
+        $relative = ltrim($path, '/');
+        foreach (['public', self::STORIES_PRIVATE_DISK] as $disk) {
+            try {
+                if (Storage::disk($disk)->exists($relative)) {
+                    Storage::disk($disk)->delete($relative);
+                }
+            } catch (Throwable $e) {
+                Log::warning('Story media delete failed on '.$disk.': '.$e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Stream story media via temporary signed URL (close-friends privacy).
+     * Migrates legacy public-disk close-friends files onto the private disk.
+     */
+    public function streamMedia(Request $request, int $story)
+    {
+        $model = Story::query()->find($story);
+        if (!$model || !$model->media_path) {
+            abort(404);
+        }
+
+        $relative = ltrim((string) $model->media_path, '/');
+        $isCloseFriends = ($model->audience ?: 'public') === 'close_friends';
+
+        if (Storage::disk(self::STORIES_PRIVATE_DISK)->exists($relative)) {
+            return Storage::disk(self::STORIES_PRIVATE_DISK)->response($relative);
+        }
+
+        if (Storage::disk('public')->exists($relative)) {
+            if ($isCloseFriends) {
+                try {
+                    Storage::disk(self::STORIES_PRIVATE_DISK)->put(
+                        $relative,
+                        Storage::disk('public')->get($relative)
+                    );
+                    Storage::disk('public')->delete($relative);
+                    return Storage::disk(self::STORIES_PRIVATE_DISK)->response($relative);
+                } catch (Throwable $e) {
+                    Log::warning('Close-friends media migrate failed: '.$e->getMessage());
+                }
+            }
+
+            return Storage::disk('public')->response($relative);
+        }
+
+        abort(404);
+    }
 
     /**
      * Lazy cleanup of expired stories. Runs at most once per request to keep
@@ -93,11 +208,6 @@ class StoryController extends Controller
         return $out;
     }
 
-    private function publicUrl(string $path): string
-    {
-        return url('storage/' . ltrim($path, '/'));
-    }
-
     private function avatarUrl(?User $u): ?string
     {
         if (!$u || !$u->image) return null;
@@ -123,7 +233,7 @@ class StoryController extends Controller
 
         return [
             'id'                     => (int) $s->id,
-            'media_url'              => $this->publicUrl($s->media_path),
+            'media_url'              => $this->mediaUrl($s),
             'media_type'             => $s->media_type,
             'audience'               => $s->audience ?: 'public',
             'overlays'               => $this->overlaysForViewer($s, $authUserId),
@@ -369,10 +479,12 @@ class StoryController extends Controller
         $file = $request->file('media');
         $type = $isTextStory ? 'image' : $request->input('media_type');
         $bgColor = $this->sanitizeHexColor($request->input('bg_color'));
+        $audience = $request->input('audience', 'public');
+        $disk = $this->storyDiskForAudience($audience);
 
         $path = null;
         if ($isTextStory) {
-            $path = $this->writeSolidPng($user->id, $bgColor ?: '#111111');
+            $path = $this->writeSolidPng($user->id, $bgColor ?: '#111111', $disk);
         } else {
             if (!$file) {
                 return response()->json(['message' => 'Media file is required'], 422);
@@ -396,15 +508,15 @@ class StoryController extends Controller
 
             $ext = $this->extensionForMime($mime, $type);
             $filename = 'story_' . $user->id . '_' . time() . '_' . substr(bin2hex(random_bytes(4)), 0, 8) . '.' . $ext;
-            $path = $file->storeAs(self::STORIES_DIR, $filename, 'public');
+            $path = $file->storeAs(self::STORIES_DIR, $filename, $disk);
         }
 
         try {
 
-            $audioUrl = $this->storeUserStoryAudio($request, (int) $user->id);
-            $stickerUrls = $this->storeNamedImageUploads($request, (int) $user->id, 'sticker_');
-            $layoutCellUrls = $this->storeNamedImageUploads($request, (int) $user->id, 'layout_cell_');
-            $boomerangUrls = $this->storeBoomerangUploads($request, (int) $user->id);
+            $audioUrl = $this->storeUserStoryAudio($request, (int) $user->id, $disk);
+            $stickerUrls = $this->storeNamedImageUploads($request, (int) $user->id, 'sticker_', $disk);
+            $layoutCellUrls = $this->storeNamedImageUploads($request, (int) $user->id, 'layout_cell_', $disk);
+            $boomerangUrls = $this->storeBoomerangUploads($request, (int) $user->id, $disk);
 
             $overlays = $this->sanitizeOverlaysPayload(
                 $request->input('overlays'),
@@ -418,7 +530,7 @@ class StoryController extends Controller
                 'user_id'     => $user->id,
                 'media_path'  => $path,
                 'media_type'  => $type,
-                'audience'    => $request->input('audience', 'public'),
+                'audience'    => $audience,
                 'bg_color'    => $bgColor,
                 'overlays'    => $overlays,
                 'duration_ms' => $type === 'video'
@@ -505,7 +617,7 @@ class StoryController extends Controller
 
         try {
             if ($story->media_path) {
-                Storage::disk('public')->delete($story->media_path);
+                $this->deleteStoryMediaFile($story->media_path);
             }
             $story->delete();
         } catch (Throwable $e) {
@@ -713,7 +825,7 @@ class StoryController extends Controller
         $body = json_encode([
             'type'         => 'story_reply',
             'story_id'     => (int) $story->id,
-            'story_preview'=> $this->publicUrl($story->media_path),
+            'story_preview'=> $this->mediaUrl($story),
             'media_type'   => $story->media_type,
             'text'         => $rawMessage,
         ], JSON_UNESCAPED_UNICODE);
@@ -807,7 +919,7 @@ class StoryController extends Controller
         }
 
         $src = (string) $story->media_path;
-        if ($src === '' || !Storage::disk('public')->exists($src)) {
+        if ($src === '' || ! $this->resolveStoryMediaDisk($src)) {
             return response()->json(['message' => 'Story media is missing'], 422);
         }
 
@@ -816,7 +928,9 @@ class StoryController extends Controller
         $newPath = self::STORIES_DIR . '/' . $newFilename;
 
         try {
-            Storage::disk('public')->copy($src, $newPath);
+            if (! $this->copyStoryMedia($src, $newPath, 'public')) {
+                return response()->json(['message' => 'Could not copy media'], 500);
+            }
         } catch (Throwable $e) {
             Log::error('mentionRepost copy failed: ' . $e->getMessage());
 
@@ -1001,13 +1115,16 @@ class StoryController extends Controller
         }
 
         $src = (string) $story->media_path;
-        if ($src === '' || !Storage::disk('public')->exists($src)) {
+        if ($src === '' || ! $this->resolveStoryMediaDisk($src)) {
             return response()->json(['message' => 'Story media is missing'], 422);
         }
 
         $ext = pathinfo($src, PATHINFO_EXTENSION) ?: 'jpg';
         $newPath = self::STORIES_DIR . '/story_' . $user->id . '_' . time() . '_' . substr(bin2hex(random_bytes(4)), 0, 8) . '.' . $ext;
-        Storage::disk('public')->copy($src, $newPath);
+        $destDisk = $this->storyDiskForAudience($story->audience ?: 'public');
+        if (! $this->copyStoryMedia($src, $newPath, $destDisk)) {
+            return response()->json(['message' => 'Could not copy media'], 500);
+        }
 
         $newStory = Story::create([
             'user_id'     => $user->id,
@@ -1071,7 +1188,7 @@ class StoryController extends Controller
         $body = json_encode([
             'type' => 'story_share',
             'story_id' => (int) $story->id,
-            'story_preview' => $this->publicUrl($story->media_path),
+            'story_preview' => $this->mediaUrl($story),
             'media_type' => $story->media_type,
             'text' => 'Shared a story',
         ], JSON_UNESCAPED_UNICODE);
@@ -1249,7 +1366,7 @@ class StoryController extends Controller
         return strtolower($v);
     }
 
-    private function writeSolidPng(int $userId, string $hex): string
+    private function writeSolidPng(int $userId, string $hex, string $disk = 'public'): string
     {
         $hex = $this->sanitizeHexColor($hex) ?: '#111111';
         $filename = 'story_'.$userId.'_'.time().'_'.substr(bin2hex(random_bytes(4)), 0, 8).'.png';
@@ -1264,20 +1381,57 @@ class StoryController extends Controller
             imagepng($im);
             $data = ob_get_clean();
             imagedestroy($im);
-            Storage::disk('public')->put($path, $data);
+            Storage::disk($disk)->put($path, $data);
 
             return $path;
         }
         $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
-        Storage::disk('public')->put($path, $png);
+        Storage::disk($disk)->put($path, $png);
 
         return $path;
     }
 
     /**
-     * Optional user-owned audio attached to a story. Returns a public URL or null.
+     * URL for a story-owned asset. Private-disk files get short-lived signed URLs.
      */
-    private function storeUserStoryAudio(Request $request, int $userId): ?string
+    private function storyAssetUrl(string $path, string $disk): string
+    {
+        $relative = ltrim($path, '/');
+        if ($disk === self::STORIES_PRIVATE_DISK) {
+            return URL::temporarySignedRoute(
+                'mobile.stories.asset',
+                now()->addMinutes(self::CLOSE_FRIENDS_URL_TTL_MINUTES),
+                ['path' => $relative]
+            );
+        }
+
+        return $this->publicUrl($relative);
+    }
+
+    /**
+     * Stream a private story asset (audio/sticker/etc.) via signed URL.
+     */
+    public function streamAsset(Request $request)
+    {
+        $path = (string) $request->query('path', '');
+        $relative = ltrim($path, '/');
+        if ($relative === '' || ! str_starts_with($relative, self::STORIES_DIR.'/')) {
+            abort(404);
+        }
+        if (str_contains($relative, '..')) {
+            abort(404);
+        }
+        if (! Storage::disk(self::STORIES_PRIVATE_DISK)->exists($relative)) {
+            abort(404);
+        }
+
+        return Storage::disk(self::STORIES_PRIVATE_DISK)->response($relative);
+    }
+
+    /**
+     * Optional user-owned audio attached to a story. Returns a URL or null.
+     */
+    private function storeUserStoryAudio(Request $request, int $userId, string $disk = 'public'): ?string
     {
         $file = $request->file('audio');
         if (!$file) {
@@ -1303,12 +1457,12 @@ class StoryController extends Controller
         }
 
         $filename = 'audio_'.$userId.'_'.time().'_'.substr(bin2hex(random_bytes(4)), 0, 8).'.'.$ext;
-        $path = $file->storeAs(self::STORIES_DIR, $filename, 'public');
+        $path = $file->storeAs(self::STORIES_DIR, $filename, $disk);
 
-        return $this->publicUrl($path);
+        return $this->storyAssetUrl($path, $disk);
     }
 
-    private function storeNamedImageUploads(Request $request, int $userId, string $prefix): array
+    private function storeNamedImageUploads(Request $request, int $userId, string $prefix, string $disk = 'public'): array
     {
         $out = [];
         foreach ($request->allFiles() as $key => $file) {
@@ -1316,7 +1470,7 @@ class StoryController extends Controller
                 continue;
             }
             $id = substr($key, strlen($prefix));
-            $url = $this->storePublicImageFile($file, $userId, 'sticker');
+            $url = $this->storePublicImageFile($file, $userId, 'sticker', $disk);
             if ($url) {
                 $out[$id] = $url;
             }
@@ -1325,7 +1479,7 @@ class StoryController extends Controller
         return $out;
     }
 
-    private function storeBoomerangUploads(Request $request, int $userId): array
+    private function storeBoomerangUploads(Request $request, int $userId, string $disk = 'public'): array
     {
         $files = $request->file('boomerang', []);
         if (!is_array($files)) {
@@ -1336,7 +1490,7 @@ class StoryController extends Controller
             if (!($file instanceof \Illuminate\Http\UploadedFile)) {
                 continue;
             }
-            $url = $this->storePublicImageFile($file, $userId, 'boom');
+            $url = $this->storePublicImageFile($file, $userId, 'boom', $disk);
             if ($url) {
                 $urls[] = $url;
             }
@@ -1345,7 +1499,7 @@ class StoryController extends Controller
         return $urls;
     }
 
-    private function storePublicImageFile(\Illuminate\Http\UploadedFile $file, int $userId, string $kind): ?string
+    private function storePublicImageFile(\Illuminate\Http\UploadedFile $file, int $userId, string $kind, string $disk = 'public'): ?string
     {
         if ($file->getSize() > self::MAX_PHOTO_BYTES) {
             return null;
@@ -1360,9 +1514,9 @@ class StoryController extends Controller
             $ext = 'gif';
         }
         $filename = $kind.'_'.$userId.'_'.time().'_'.substr(bin2hex(random_bytes(4)), 0, 8).'.'.$ext;
-        $path = $file->storeAs(self::STORIES_DIR, $filename, 'public');
+        $path = $file->storeAs(self::STORIES_DIR, $filename, $disk);
 
-        return $this->publicUrl($path);
+        return $this->storyAssetUrl($path, $disk);
     }
 
     /**
