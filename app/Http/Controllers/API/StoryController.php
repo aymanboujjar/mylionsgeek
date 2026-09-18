@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Http\Controllers\API\Concerns\ServesStoryMedia;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
@@ -22,59 +23,23 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
 
 class StoryController extends Controller
 {
-    private const STORIES_DIR = 'stories';
-    private const STORIES_PRIVATE_DISK = 'stories';
+    use ServesStoryMedia;
+
     private const TTL_HOURS = 24;
     private const MAX_PHOTO_BYTES = 10 * 1024 * 1024;  // 10 MB
     private const MAX_VIDEO_BYTES = 50 * 1024 * 1024;  // 50 MB
     private const MAX_VIDEO_DURATION_MS = 60_000;       // 60s
-    /** Short-lived; authenticated story APIs refresh signed URLs on each fetch. */
-    private const CLOSE_FRIENDS_URL_TTL_MINUTES = 15;
 
     private function storyDiskForAudience(?string $audience): string
     {
         return ($audience ?: 'public') === 'close_friends'
             ? self::STORIES_PRIVATE_DISK
             : 'public';
-    }
-
-    private function publicUrl(string $path): string
-    {
-        return url('storage/' . ltrim($path, '/'));
-    }
-
-    /**
-     * Close-friends media is never a stable public /storage URL.
-     * Clients receive a short-lived signed URL bound to the viewer; stream
-     * endpoints re-check visibility (hide / close-friends / expiry).
-     */
-    private function mediaUrl(Story $s, ?int $viewerId = null): string
-    {
-        $path = ltrim((string) $s->media_path, '/');
-        if ($path === '') {
-            return '';
-        }
-
-        if (($s->audience ?: 'public') === 'close_friends') {
-            $params = ['story' => $s->id];
-            if ($viewerId && $viewerId > 0) {
-                $params['viewer'] = $viewerId;
-            }
-
-            return URL::temporarySignedRoute(
-                'mobile.stories.file',
-                now()->addMinutes(self::CLOSE_FRIENDS_URL_TTL_MINUTES),
-                $params
-            );
-        }
-
-        return $this->publicUrl($path);
     }
 
     /**
@@ -95,24 +60,6 @@ class StoryController extends Controller
         }
 
         return $viewer;
-    }
-
-    private function storyOwnsAssetPath(Story $story, string $relative): bool
-    {
-        $relative = ltrim($relative, '/');
-        if ($relative === '') {
-            return false;
-        }
-        if (ltrim((string) $story->media_path, '/') === $relative) {
-            return true;
-        }
-
-        $haystack = json_encode($story->overlays ?? [], JSON_UNESCAPED_SLASHES);
-        if (! is_string($haystack) || $haystack === '') {
-            return false;
-        }
-
-        return str_contains($haystack, $relative);
     }
 
     private function resolveStoryMediaDisk(string $relative): ?string
@@ -268,7 +215,8 @@ class StoryController extends Controller
     private function mapStory(Story $s, int $authUserId, ?array $repostStoryIds = null): array
     {
         $canRepost = false;
-        if ($authUserId > 0 && (int) $s->user_id !== $authUserId) {
+        $isCloseFriends = ($s->audience ?: 'public') === 'close_friends';
+        if ($authUserId > 0 && (int) $s->user_id !== $authUserId && ! $isCloseFriends) {
             if (is_array($repostStoryIds)) {
                 $canRepost = !empty($repostStoryIds[(int) $s->id]);
             } else {
@@ -300,92 +248,6 @@ class StoryController extends Controller
             'can_repost_as_mention'  => $canRepost,
             'interactions'           => $this->mapInteractionsForViewer($s, $authUserId),
         ];
-    }
-
-    private function overlaysForViewer(Story $s, int $authUserId): array
-    {
-        $overlays = is_array($s->overlays) ? $s->overlays : [];
-        $isOwner = (int) $s->user_id === $authUserId;
-        $isCloseFriends = ($s->audience ?: 'public') === 'close_friends';
-
-        return array_values(array_map(function ($o) use ($isOwner, $isCloseFriends, $s, $authUserId) {
-            if (!is_array($o)) {
-                return $o;
-            }
-            if (($o['type'] ?? '') === 'quiz' && !$isOwner) {
-                unset($o['correct_index']);
-            }
-            if ($isCloseFriends) {
-                $o = $this->freshPrivateOverlayUrls($o, $s, $authUserId);
-            }
-
-            return $o;
-        }, $overlays));
-    }
-
-    /**
-     * Rewrite stored private-disk asset refs into short-lived signed URLs for this viewer.
-     */
-    private function freshPrivateOverlayUrls(array $overlay, Story $story, int $viewerId): array
-    {
-        foreach (['preview_url', 'image_url', 'url'] as $key) {
-            if (! empty($overlay[$key]) && is_string($overlay[$key])) {
-                $overlay[$key] = $this->freshPrivateAssetUrl($overlay[$key], $story, $viewerId);
-            }
-        }
-        if (! empty($overlay['frames']) && is_array($overlay['frames'])) {
-            $overlay['frames'] = array_map(
-                fn ($frame) => is_string($frame)
-                    ? $this->freshPrivateAssetUrl($frame, $story, $viewerId)
-                    : $frame,
-                $overlay['frames']
-            );
-        }
-        if (! empty($overlay['cells']) && is_array($overlay['cells'])) {
-            $overlay['cells'] = array_map(function ($cell) use ($story, $viewerId) {
-                if (is_array($cell) && ! empty($cell['image_url']) && is_string($cell['image_url'])) {
-                    $cell['image_url'] = $this->freshPrivateAssetUrl($cell['image_url'], $story, $viewerId);
-                }
-
-                return $cell;
-            }, $overlay['cells']);
-        }
-
-        return $overlay;
-    }
-
-    private function freshPrivateAssetUrl(string $stored, Story $story, int $viewerId): string
-    {
-        $path = $this->extractPrivateAssetPath($stored);
-        if ($path === null) {
-            return $stored;
-        }
-
-        return $this->storyAssetUrl($path, self::STORIES_PRIVATE_DISK, (int) $story->id, $viewerId);
-    }
-
-    private function extractPrivateAssetPath(string $stored): ?string
-    {
-        $stored = trim($stored);
-        if ($stored === '') {
-            return null;
-        }
-
-        // Relative path persisted at upload time for private-disk assets.
-        if (str_starts_with($stored, self::STORIES_DIR.'/') && ! str_contains($stored, '://')) {
-            return ltrim($stored, '/');
-        }
-
-        $query = parse_url($stored, PHP_URL_QUERY);
-        if (is_string($query) && $query !== '') {
-            parse_str($query, $params);
-            $path = isset($params['path']) ? ltrim((string) $params['path'], '/') : '';
-            if ($path !== '' && str_starts_with($path, self::STORIES_DIR.'/')) {
-                return $path;
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -1033,6 +895,9 @@ class StoryController extends Controller
         if (!$allowed) {
             return response()->json(['message' => 'You are not mentioned on this story'], 403);
         }
+        if (($story->audience ?: 'public') === 'close_friends') {
+            return response()->json(['message' => 'Close friends stories cannot be reposted'], 403);
+        }
 
         $src = (string) $story->media_path;
         if ($src === '' || ! $this->resolveStoryMediaDisk($src)) {
@@ -1440,8 +1305,15 @@ class StoryController extends Controller
 
     private function notifyStaffAboutStoryReport(StoryReport $report, User $reporter): void
     {
-        $admins = User::query()->select(['id', 'name', 'image', 'role'])->get()
-            ->filter(fn (User $u) => $this->isStaff($u))->values();
+        $staffRoles = ['admin', 'super_admin', 'moderateur', 'coach', 'studio_responsable'];
+        $admins = User::query()
+            ->select(['id', 'name', 'image', 'role'])
+            ->where(function ($q) use ($staffRoles) {
+                foreach ($staffRoles as $role) {
+                    $q->orWhereJsonContains('role', $role);
+                }
+            })
+            ->get();
         if ($admins->isEmpty()) {
             return;
         }
@@ -1504,33 +1376,6 @@ class StoryController extends Controller
         Storage::disk($disk)->put($path, $png);
 
         return $path;
-    }
-
-    /**
-     * URL for a story-owned asset.
-     * Private-disk: persist relative path at upload; issue signed URLs only when
-     * serving to a known viewer (refreshed via authenticated story APIs).
-     */
-    private function storyAssetUrl(string $path, string $disk, ?int $storyId = null, ?int $viewerId = null): string
-    {
-        $relative = ltrim($path, '/');
-        if ($disk === self::STORIES_PRIVATE_DISK) {
-            if (! $storyId || ! $viewerId) {
-                return $relative;
-            }
-
-            return URL::temporarySignedRoute(
-                'mobile.stories.asset',
-                now()->addMinutes(self::CLOSE_FRIENDS_URL_TTL_MINUTES),
-                [
-                    'path' => $relative,
-                    'story' => $storyId,
-                    'viewer' => $viewerId,
-                ]
-            );
-        }
-
-        return $this->publicUrl($relative);
     }
 
     /**
@@ -1796,11 +1641,8 @@ class StoryController extends Controller
                 }
                 $cells = [];
                 $rawCells = is_array($o['cells'] ?? null) ? $o['cells'] : [];
-                foreach (array_slice($rawCells, 0, 4) as $i => $cell) {
+                foreach (array_slice($rawCells, 0, 4) as $i => $_cell) {
                     $url = $layoutCellUrls[(string) $i] ?? $layoutCellUrls[$i] ?? null;
-                    if (!$url && is_array($cell) && is_string($cell['image_url'] ?? null) && str_contains((string) $cell['image_url'], '/storage/stories/')) {
-                        $url = $cell['image_url'];
-                    }
                     if ($url) {
                         $cells[] = ['image_url' => $url];
                     }

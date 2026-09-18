@@ -49,6 +49,9 @@ class MusicController extends Controller
         'original' => 'original audio',
     ];
 
+    private const BROWSE_CACHE_TTL_SECONDS = 1200; // 20 minutes for charts / trending
+    private const SEARCH_CACHE_TTL_SECONDS = 300;  // 5 minutes for search
+
     /** Curated Moroccan artists used when Spotify is unavailable. */
     private const MOROCCO_ARTIST_QUERIES = [
         'ElGrandeToto',
@@ -139,14 +142,30 @@ class MusicController extends Controller
 
     private function resolveBrowseSection(string $section, string $country, int $limit, string $query): array
     {
+        if ($section === 'search' && $query === '') {
+            return $this->emptyPayload('search', 'Search', $country);
+        }
+
+        $ttl = $section === 'search' ? self::SEARCH_CACHE_TTL_SECONDS : self::BROWSE_CACHE_TTL_SECONDS;
+        $cacheKey = 'music:browse:'.md5(implode('|', [
+            strtolower($section),
+            strtoupper($country),
+            (string) $limit,
+            mb_strtolower($query),
+        ]));
+
+        return Cache::remember($cacheKey, $ttl, function () use ($section, $country, $limit, $query) {
+            return $this->loadBrowseSection($section, $country, $limit, $query);
+        });
+    }
+
+    private function loadBrowseSection(string $section, string $country, int $limit, string $query): array
+    {
         if ($section === 'top_morocco') {
             return $this->loadTopMorocco($country, $limit);
         }
 
         if ($section === 'search') {
-            if ($query === '') {
-                return $this->emptyPayload('search', 'Search', $country);
-            }
             return $this->loadSearch($query, $limit, $country, 'Search results', $country);
         }
 

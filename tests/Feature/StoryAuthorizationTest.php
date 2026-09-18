@@ -368,6 +368,16 @@ test('music browse returns a catalog payload', function () {
         ->assertJsonPath('source', 'spotify+itunes')
         ->assertJsonPath('items.0.title', 'Test Track')
         ->assertJsonPath('items.0.preview_url', 'https://p.scdn.co/mp3-preview/test');
+
+    $this->actingAs($user, 'sanctum')
+        ->getJson('/api/mobile/music/browse?section=top_morocco&country=MA')
+        ->assertOk()
+        ->assertJsonPath('items.0.title', 'Test Track');
+
+    $playlistCalls = collect(Http::recorded())
+        ->filter(fn ($pair) => str_contains($pair[0]->url(), 'api.spotify.com/v1/playlists'))
+        ->count();
+    expect($playlistCalls)->toBe(1);
 });
 
 test('catalog music overlay keeps an allowlisted preview url', function () {
@@ -668,4 +678,215 @@ test('admin story report media streams private close-friends files', function ()
             ->component('admin/story-reports/index')
             ->has('reports.data.0.story.media_url')
         );
+});
+
+test('close-friends overlay stream is revoked after unfriend and stolen paths are rejected', function () {
+    Storage::fake('stories');
+    Storage::fake('public');
+
+    $owner = storyUser();
+    $friend = storyUser();
+    $attacker = storyUser();
+
+    CloseFriend::query()->create([
+        'user_id' => $owner->id,
+        'friend_id' => $friend->id,
+    ]);
+
+    $created = $this->actingAs($owner, 'sanctum')
+        ->post('/api/mobile/stories', [
+            'media' => UploadedFile::fake()->image('story.jpg', 200, 200),
+            'media_type' => 'image',
+            'audience' => 'close_friends',
+            'overlays' => json_encode([
+                ['id' => 'st1', 'type' => 'sticker', 'x' => 0.5, 'y' => 0.5, 'scale' => 1, 'rotation' => 0],
+            ]),
+            'sticker_st1' => UploadedFile::fake()->image('sticker.png', 80, 80),
+        ])
+        ->assertCreated()
+        ->json('story');
+
+    $friendOverlay = $this->actingAs($friend, 'sanctum')
+        ->getJson('/api/mobile/stories')
+        ->assertOk()
+        ->json('groups.0.stories.0.overlays.0.image_url');
+
+    expect($friendOverlay)->toBeString()->toContain('signature=');
+    expect($friendOverlay)->toContain('path=');
+    $this->get($friendOverlay)->assertOk();
+
+    parse_str((string) parse_url($friendOverlay, PHP_URL_QUERY), $params);
+    $stolenPath = ltrim((string) ($params['path'] ?? ''), '/');
+    expect($stolenPath)->toStartWith('stories/');
+
+    $layout = $this->actingAs($attacker, 'sanctum')
+        ->post('/api/mobile/stories', [
+            'media' => UploadedFile::fake()->image('mine.jpg', 200, 200),
+            'media_type' => 'image',
+            'overlays' => json_encode([[
+                'id' => 'l1',
+                'type' => 'layout',
+                'template' => '2v',
+                'cells' => [
+                    ['image_url' => url('storage/'.$stolenPath)],
+                    ['image_url' => url('storage/stories/other.png')],
+                ],
+            ]]),
+        ])
+        ->assertCreated()
+        ->json('story.overlays');
+
+    expect(collect($layout)->firstWhere('type', 'layout'))->toBeNull();
+
+    $attackerStory = makeStory($attacker, [
+        'audience' => 'close_friends',
+        'overlays' => [[
+            'id' => 'st1',
+            'type' => 'sticker',
+            'image_url' => $stolenPath,
+        ]],
+    ]);
+    Storage::disk('stories')->put($attackerStory->media_path, 'attacker-bytes');
+
+    $forged = \Illuminate\Support\Facades\URL::temporarySignedRoute(
+        'mobile.stories.asset',
+        now()->addMinutes(15),
+        [
+            'path' => $stolenPath,
+            'story' => $attackerStory->id,
+            'viewer' => $attacker->id,
+        ]
+    );
+    $this->get($forged)->assertNotFound();
+
+    CloseFriend::query()
+        ->where('user_id', $owner->id)
+        ->where('friend_id', $friend->id)
+        ->delete();
+    $this->get($friendOverlay)->assertNotFound();
+});
+
+test('mention-repost refuses close-friends stories', function () {
+    Storage::fake('stories');
+    Storage::fake('public');
+
+    $owner = storyUser();
+    $mentioned = storyUser();
+
+    CloseFriend::query()->create([
+        'user_id' => $owner->id,
+        'friend_id' => $mentioned->id,
+    ]);
+
+    $path = 'stories/cf_rp_'.$owner->id.'.jpg';
+    Storage::disk('stories')->put($path, 'private-bytes');
+    $story = makeStory($owner, [
+        'audience' => 'close_friends',
+        'media_path' => $path,
+    ]);
+
+    \Illuminate\Support\Facades\DB::table('story_mentions')->insert([
+        'story_id' => $story->id,
+        'mentioned_user_id' => $mentioned->id,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $this->actingAs($mentioned, 'sanctum')
+        ->getJson('/api/mobile/stories')
+        ->assertOk()
+        ->assertJsonPath('groups.0.stories.0.can_repost_as_mention', false);
+
+    $this->actingAs($mentioned, 'sanctum')
+        ->postJson('/api/mobile/stories/'.$story->id.'/mention-repost')
+        ->assertForbidden();
+
+    expect(Story::query()->where('user_id', $mentioned->id)->count())->toBe(0);
+    expect(Storage::disk('public')->allFiles())->toBe([]);
+});
+
+test('mention-repost copies a public story for the mentioned user', function () {
+    Storage::fake('public');
+
+    $owner = storyUser();
+    $mentioned = storyUser();
+    $path = 'stories/pub_rp_'.$owner->id.'.jpg';
+    Storage::disk('public')->put($path, 'public-bytes');
+    $story = makeStory($owner, [
+        'audience' => 'public',
+        'media_path' => $path,
+    ]);
+
+    \Illuminate\Support\Facades\DB::table('story_mentions')->insert([
+        'story_id' => $story->id,
+        'mentioned_user_id' => $mentioned->id,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $this->actingAs($mentioned, 'sanctum')
+        ->postJson('/api/mobile/stories/'.$story->id.'/mention-repost')
+        ->assertCreated()
+        ->assertJsonPath('story.audience', 'public')
+        ->assertJsonPath('story.is_mine', true);
+
+    expect(Story::query()->where('user_id', $mentioned->id)->count())->toBe(1);
+});
+
+test('highlights sign close-friends media and hide it from outsiders', function () {
+    Storage::fake('stories');
+    Storage::fake('public');
+
+    $owner = storyUser();
+    $friend = storyUser();
+    $outsider = storyUser();
+
+    CloseFriend::query()->create([
+        'user_id' => $owner->id,
+        'friend_id' => $friend->id,
+    ]);
+
+    $path = 'stories/cf_hl_'.$owner->id.'.jpg';
+    $sticker = 'stories/sticker_'.$owner->id.'_1.png';
+    Storage::disk('stories')->put($path, 'highlight-bytes');
+    Storage::disk('stories')->put($sticker, 'sticker-bytes');
+
+    $story = makeStory($owner, [
+        'audience' => 'close_friends',
+        'media_path' => $path,
+        'overlays' => [[
+            'id' => 'st1',
+            'type' => 'sticker',
+            'image_url' => $sticker,
+        ]],
+    ]);
+
+    $highlight = \App\Models\StoryHighlight::query()->create([
+        'user_id' => $owner->id,
+        'title' => 'Close friends',
+        'cover_path' => null,
+    ]);
+    \App\Models\StoryHighlightItem::query()->create([
+        'highlight_id' => $highlight->id,
+        'story_id' => $story->id,
+        'position' => 0,
+    ]);
+
+    $payload = $this->actingAs($friend, 'sanctum')
+        ->getJson('/api/mobile/highlights/'.$highlight->id)
+        ->assertOk()
+        ->json('highlight');
+
+    expect($payload['stories'])->toHaveCount(1);
+    expect($payload['stories'][0]['media_url'])->toContain('signature=');
+    expect($payload['stories'][0]['overlays'][0]['image_url'])->toContain('signature=');
+    $this->get($payload['stories'][0]['media_url'])->assertOk();
+    $this->get($payload['stories'][0]['overlays'][0]['image_url'])->assertOk();
+
+    $hidden = $this->actingAs($outsider, 'sanctum')
+        ->getJson('/api/mobile/highlights/'.$highlight->id)
+        ->assertOk()
+        ->json('highlight.stories');
+
+    expect($hidden)->toBe([]);
 });
