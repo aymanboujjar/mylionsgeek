@@ -99,7 +99,10 @@ class ExpoPushNotificationService
         foreach ($tokenArray as $token) {
             $payload = [
                 'to' => $token,
-                'sound' => $isIncomingCall ? null : 'default', // CallKeep plays the system ringtone, not the notification sound
+                // CallKeep owns the ringtone when available; keep a default sound
+                // as a fallback so the device still alerts if CallKit/Telecom
+                // is not yet registered on the handset.
+                'sound' => 'default',
                 'title' => $title,
                 'body' => $body,
                 'data' => $data,
@@ -107,19 +110,14 @@ class ExpoPushNotificationService
                 'channelId' => $channelId,
                 '_displayInForeground' => true,
                 'interruptionLevel' => $iosInterruptionLevel,
-                'ttl' => $isIncomingCall ? 30 : null, // call invites expire fast
+                'ttl' => $isIncomingCall ? 45 : null,
             ];
 
             if ($isIncomingCall) {
-                // Setting _contentAvailable causes APNs to deliver this push as a
-                // silent / background push on iOS, which lets the JS background
-                // notification task fire and trigger CallKit via CallKeep.
-                // On Android the high-priority FCM push also wakes the app for
-                // the same background task.
+                // Wake JS so CallKeep can present the native incoming-call UI.
                 $payload['_contentAvailable'] = true;
-                // Suppress the regular notification banner; the native incoming
-                // call UI takes over instead.
                 $payload['mutableContent'] = true;
+                $payload['categoryId'] = 'incoming_call';
             }
 
             $messages[] = $payload;
