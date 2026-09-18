@@ -528,3 +528,144 @@ test('story mention notifications are private to the mentioned user', function (
 
     expect(\App\Models\StoryNotification::query()->find($notifId)?->read_at)->toBeNull();
 });
+
+test('close-friends signed stream rejects after hide close-friend removal or expiry', function () {
+    Storage::fake('stories');
+
+    $owner = storyUser();
+    $friend = storyUser();
+    $outsider = storyUser();
+
+    CloseFriend::query()->create([
+        'user_id' => $owner->id,
+        'friend_id' => $friend->id,
+    ]);
+
+    $path = 'stories/cf_'.$owner->id.'.jpg';
+    Storage::disk('stories')->put($path, 'fake-image-bytes');
+
+    $story = makeStory($owner, [
+        'audience' => 'close_friends',
+        'media_path' => $path,
+    ]);
+
+    $mediaUrl = $this->actingAs($friend, 'sanctum')
+        ->getJson('/api/mobile/stories')
+        ->assertOk()
+        ->json('groups.0.stories.0.media_url');
+
+    expect($mediaUrl)->toBeString()->toContain('signature=');
+    expect($mediaUrl)->toContain('viewer='.$friend->id);
+
+    $this->get($mediaUrl)->assertOk();
+
+    // Outsider cannot mint a working URL via the friend signature by swapping viewer.
+    $outsiderUrl = $this->actingAs($outsider, 'sanctum')
+        ->getJson('/api/mobile/stories')
+        ->assertOk()
+        ->json('groups');
+    expect(collect($outsiderUrl)->pluck('user.id')->all())->not->toContain($owner->id);
+
+    // Hidden by moderation — prior signed URL must stop working for the friend.
+    $story->is_hidden = true;
+    $story->save();
+    $this->get($mediaUrl)->assertNotFound();
+
+    $story->is_hidden = false;
+    $story->save();
+
+    // Close-friend removed — prior signed URL must stop working.
+    CloseFriend::query()
+        ->where('user_id', $owner->id)
+        ->where('friend_id', $friend->id)
+        ->delete();
+    $this->get($mediaUrl)->assertNotFound();
+
+    CloseFriend::query()->create([
+        'user_id' => $owner->id,
+        'friend_id' => $friend->id,
+    ]);
+    $freshUrl = $this->actingAs($friend, 'sanctum')
+        ->getJson('/api/mobile/stories')
+        ->assertOk()
+        ->json('groups.0.stories.0.media_url');
+    $this->get($freshUrl)->assertOk();
+
+    // Expired — non-owner stream denied even with a previously valid signature.
+    $story->expires_at = now()->subMinute();
+    $story->save();
+    $this->get($freshUrl)->assertNotFound();
+});
+
+test('story share persists story id without a capability media URL', function () {
+    $owner = storyUser();
+    $friend = storyUser();
+    $recipient = storyUser();
+
+    CloseFriend::query()->create([
+        'user_id' => $owner->id,
+        'friend_id' => $friend->id,
+    ]);
+    CloseFriend::query()->create([
+        'user_id' => $owner->id,
+        'friend_id' => $recipient->id,
+    ]);
+
+    $story = makeStory($owner, ['audience' => 'close_friends']);
+
+    $this->actingAs($friend, 'sanctum')
+        ->postJson('/api/mobile/stories/'.$story->id.'/share', [
+            'user_id' => $recipient->id,
+        ])
+        ->assertOk()
+        ->assertJsonPath('ok', true);
+
+    $message = \App\Models\Message::query()->latest('id')->first();
+    expect($message)->not->toBeNull();
+
+    $body = json_decode((string) $message->body, true);
+    expect($body['type'] ?? null)->toBe('story_share');
+    expect($body['story_id'] ?? null)->toBe($story->id);
+    expect($body)->not->toHaveKey('story_preview');
+    expect(json_encode($body))->not->toContain('signature=');
+});
+
+test('admin story report media streams private close-friends files', function () {
+    Storage::fake('stories');
+    $this->withoutVite();
+
+    $owner = storyUser();
+    $reporter = storyUser();
+    $admin = storyUser(['role' => ['admin']]);
+
+    $path = 'stories/report_'.$owner->id.'.jpg';
+    Storage::disk('stories')->put($path, 'reported-bytes');
+
+    $story = makeStory($owner, [
+        'audience' => 'close_friends',
+        'media_path' => $path,
+    ]);
+
+    $report = StoryReport::query()->create([
+        'story_id' => $story->id,
+        'reporter_id' => $reporter->id,
+        'reason' => 'spam',
+        'status' => StoryReport::STATUS_PENDING,
+    ]);
+
+    // Public /storage URL must not serve private-disk close-friends files.
+    $publicStorage = $this->get('/storage/'.$path);
+    expect(in_array($publicStorage->status(), [403, 404], true))->toBeTrue();
+
+    $this->actingAs($admin)
+        ->get(route('admin.story-reports.media', ['report' => $report->id]))
+        ->assertOk();
+
+    $this->actingAs($admin)
+        ->get(route('admin.story-reports.index'))
+        ->assertOk()
+        ->assertInertia(fn ($assert) => $assert
+            ->component('admin/story-reports/index')
+            ->has('reports.data.0.story.media_url')
+        );
+});

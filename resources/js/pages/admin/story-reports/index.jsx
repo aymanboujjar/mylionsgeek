@@ -49,12 +49,32 @@ export default function StoryReportsIndex({ reports, filters }) {
             <div className="divide-y divide-[var(--color-border)]">
               {rows.map((r) => (
                 <div key={r.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      Story #{r?.story?.id ?? '—'} · {r?.story?.user?.name ?? 'Unknown'}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">{r.reason || 'No reason'}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Reported by {r?.reporter?.name ?? 'Unknown'}</p>
+                  <div className="flex min-w-0 flex-1 gap-3">
+                    {r?.story?.media_url ? (
+                      <a
+                        href={r.story.media_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-muted"
+                        title="Open media preview"
+                      >
+                        {r.story.media_type === 'video' ? (
+                          <video src={r.story.media_url} className="h-full w-full object-cover" muted playsInline />
+                        ) : (
+                          <img src={r.story.media_url} alt="" className="h-full w-full object-cover" />
+                        )}
+                      </a>
+                    ) : null}
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground">
+                        Story #{r?.story?.id ?? '—'} · {r?.story?.user?.name ?? 'Unknown'}
+                        {r?.story?.audience === 'close_friends' ? (
+                          <span className="ml-2 text-xs font-medium text-muted-foreground">close friends</span>
+                        ) : null}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">{r.reason || 'No reason'}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Reported by {r?.reporter?.name ?? 'Unknown'}</p>
+                    </div>
                   </div>
                   {status === 'pending' ? (
                     <div className="flex gap-2">

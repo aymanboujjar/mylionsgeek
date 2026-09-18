@@ -8,10 +8,14 @@ use App\Models\StoryReportNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
+use Throwable;
 
 class StoryReportController extends Controller
 {
+    private const STORIES_PRIVATE_DISK = 'stories';
+
     public function index(Request $request)
     {
         $status = $request->get('status', StoryReport::STATUS_PENDING);
@@ -21,7 +25,7 @@ class StoryReportController extends Controller
 
         $reports = StoryReport::query()
             ->with([
-                'story:id,user_id,media_path,media_type,created_at,is_hidden',
+                'story:id,user_id,media_path,media_type,audience,created_at,is_hidden',
                 'story.user:id,name,image',
                 'reporter:id,name,image',
                 'reviewer:id,name,image',
@@ -39,7 +43,9 @@ class StoryReportController extends Controller
                     'story' => $r->story ? [
                         'id' => (int) $r->story->id,
                         'media_type' => $r->story->media_type,
-                        'media_url' => url('storage/'.ltrim((string) $r->story->media_path, '/')),
+                        'audience' => $r->story->audience ?: 'public',
+                        // Authenticated admin preview — works for private-disk close-friends media.
+                        'media_url' => route('admin.story-reports.media', ['report' => $r->id]),
                         'is_hidden' => (bool) $r->story->is_hidden,
                         'user' => $r->story->user ? [
                             'id' => (int) $r->story->user->id,
@@ -61,6 +67,42 @@ class StoryReportController extends Controller
             'reports' => $reports,
             'filters' => ['status' => $status],
         ]);
+    }
+
+    /**
+     * Stream reported story media for staff review (session auth + role middleware).
+     * Serves private-disk close-friends files that /storage/... cannot reach.
+     */
+    public function media(int $report)
+    {
+        $reportModel = StoryReport::query()
+            ->with('story:id,media_path,media_type,audience')
+            ->findOrFail($report);
+
+        $story = $reportModel->story;
+        if (! $story || ! $story->media_path) {
+            abort(404);
+        }
+
+        $relative = ltrim((string) $story->media_path, '/');
+        $isCloseFriends = ($story->audience ?: 'public') === 'close_friends';
+
+        try {
+            if ($isCloseFriends && Storage::disk(self::STORIES_PRIVATE_DISK)->exists($relative)) {
+                return Storage::disk(self::STORIES_PRIVATE_DISK)->response($relative);
+            }
+            if (Storage::disk('public')->exists($relative)) {
+                return Storage::disk('public')->response($relative);
+            }
+            // Legacy close-friends files that landed on public disk.
+            if (Storage::disk(self::STORIES_PRIVATE_DISK)->exists($relative)) {
+                return Storage::disk(self::STORIES_PRIVATE_DISK)->response($relative);
+            }
+        } catch (Throwable $e) {
+            abort(404);
+        }
+
+        abort(404);
     }
 
     public function accept(int $report)
