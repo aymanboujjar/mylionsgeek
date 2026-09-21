@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Ably\AblyRest;
 use App\Models\Conversation;
+use App\Models\ConversationParticipant;
 use App\Models\Message;
 use App\Models\PostNotification;
 use App\Models\Post;
@@ -36,49 +37,20 @@ class ChatController extends Controller
             // The inbox must include conversations where the user is the receiver,
             // even if they don't follow the sender back.
             // We keep "start/send messages only to users you follow" enforced elsewhere.
-            $conversations = Conversation::where(function ($query) use ($user) {
-                $query->where('user_one_id', $user->id)
-                    ->orWhere('user_two_id', $user->id);
-            })
-            ->with(['userOne', 'userTwo'])
+            $conversations = Conversation::forUser((int) $user->id)
+            ->with(['userOne', 'userTwo', 'participantRows.user:id,name,image,email,last_login,last_online'])
             ->orderBy('last_message_at', 'desc')
             ->get()
             ->map(function ($conversation) use ($user) {
-                // Ensure relationships are loaded
-                if (!$conversation->relationLoaded('userOne')) {
-                    $conversation->load('userOne');
-                }
-                if (!$conversation->relationLoaded('userTwo')) {
-                    $conversation->load('userTwo');
-                }
-                
-                // Determine other user manually for safety
-                $otherUser = $conversation->user_one_id == $user->id 
-                    ? $conversation->userTwo 
-                    : $conversation->userOne;
-                
-                if (!$otherUser) {
-                    // Skip this conversation if we can't determine the other user
-                    return null;
-                }
-                
                 $unreadCount = $conversation->getUnreadCountForUser($user->id);
-                
-                // Get the actual last message (most recent by created_at)
+
                 $lastMessage = Message::where('conversation_id', $conversation->id)
                     ->orderBy('created_at', 'desc')
                     ->first();
 
-                return [
+                $base = [
                     'id' => $conversation->id,
-                    'other_user' => [
-                        'id' => $otherUser->id,
-                        'name' => $otherUser->name,
-                        'image' => $otherUser->image,
-                        'email' => $otherUser->email,
-                        'last_login' => $otherUser->last_login ? Carbon::parse($otherUser->last_login)->toISOString() : null,
-                        'last_online' => $otherUser->last_online ? Carbon::parse($otherUser->last_online)->toISOString() : null,
-                    ],
+                    'type' => $conversation->type ?? Conversation::TYPE_DIRECT,
                     'last_message' => $lastMessage ? [
                         'id' => $lastMessage->id,
                         'body' => $lastMessage->body,
@@ -90,6 +62,55 @@ class ChatController extends Controller
                     'last_message_at' => $conversation->last_message_at?->toISOString(),
                     'created_at' => $conversation->created_at->toISOString(),
                 ];
+
+                if ($conversation->isGroup()) {
+                    $members = $conversation->participantRows
+                        ->filter(fn ($row) => $row->user !== null)
+                        ->map(fn ($row) => [
+                            'id' => $row->user->id,
+                            'name' => $row->user->name,
+                            'image' => $row->user->image,
+                            'role' => $row->role ?? 'member',
+                        ])
+                        ->values()
+                        ->all();
+
+                    return array_merge($base, [
+                        'name' => $conversation->name,
+                        'avatar' => $conversation->avatar,
+                        'members_count' => count($members),
+                        'participants' => $members,
+                        'other_user' => null,
+                        'is_owner' => (int) $conversation->created_by === (int) $user->id,
+                    ]);
+                }
+
+                if (! $conversation->relationLoaded('userOne')) {
+                    $conversation->load('userOne');
+                }
+                if (! $conversation->relationLoaded('userTwo')) {
+                    $conversation->load('userTwo');
+                }
+
+                $otherUser = $conversation->user_one_id == $user->id
+                    ? $conversation->userTwo
+                    : $conversation->userOne;
+
+                if (! $otherUser) {
+                    return null;
+                }
+
+                return array_merge($base, [
+                    'name' => null,
+                    'other_user' => [
+                        'id' => $otherUser->id,
+                        'name' => $otherUser->name,
+                        'image' => $otherUser->image,
+                        'email' => $otherUser->email,
+                        'last_login' => $otherUser->last_login ? Carbon::parse($otherUser->last_login)->toISOString() : null,
+                        'last_online' => $otherUser->last_online ? Carbon::parse($otherUser->last_online)->toISOString() : null,
+                    ],
+                ]);
             })
             ->filter(function ($conversation) {
                 return $conversation !== null;
@@ -154,9 +175,14 @@ class ChatController extends Controller
             }
 
             $conversation = Conversation::create([
+                'type' => Conversation::TYPE_DIRECT,
                 'user_one_id' => min($currentUser->id, $userId),
                 'user_two_id' => max($currentUser->id, $userId),
             ]);
+
+            $this->syncDirectParticipants($conversation);
+        } else {
+            $this->syncDirectParticipants($conversation);
         }
 
         $conversation->load([
@@ -175,6 +201,7 @@ class ChatController extends Controller
 
         $conversationData = [
             'id' => $conversation->id,
+            'type' => Conversation::TYPE_DIRECT,
             'other_user' => [
                 'id' => $otherUser->id,
                 'name' => $otherUser->name,
@@ -204,12 +231,7 @@ class ChatController extends Controller
     {
         $user = Auth::user();
 
-        $conversation = Conversation::where('id', $conversationId)
-            ->where(function ($query) use ($user) {
-                $query->where('user_one_id', $user->id)
-                    ->orWhere('user_two_id', $user->id);
-            })
-            ->firstOrFail();
+        $conversation = $this->findAccessibleConversation((int) $conversationId, $user);
 
         $messagesQuery = $conversation->messages()
             ->with([
@@ -341,17 +363,7 @@ class ChatController extends Controller
 
         $user = Auth::user();
 
-        $conversation = Conversation::where('id', $conversationId)
-            ->where(function ($query) use ($user) {
-                $query->where('user_one_id', $user->id)
-                    ->orWhere('user_two_id', $user->id);
-            })
-            ->firstOrFail();
-
-        // Get the other user
-        $otherUserId = $conversation->user_one_id == $user->id
-            ? $conversation->user_two_id
-            : $conversation->user_one_id;
+        $conversation = $this->findAccessibleConversation((int) $conversationId, $user);
 
         // Follow is enforced when creating a conversation; existing threads can always reply.
 
@@ -397,9 +409,14 @@ class ChatController extends Controller
             'is_read' => false,
         ]);
 
+        $recipientIds = array_values(array_filter(
+            $conversation->participantIds(),
+            fn ($id) => (int) $id !== (int) $user->id
+        ));
+
         $isPostShareMessage = false;
 
-        // If this message is a "shared post", create a real notification for the receiver
+        // If this message is a "shared post", create a real notification for the receiver(s)
         try {
             $rawBody = (string) ($request->body ?? '');
             $decoded = $rawBody !== '' ? json_decode($rawBody, true) : null;
@@ -412,18 +429,18 @@ class ChatController extends Controller
                     $sharedPost = Post::find($sharedPostId);
 
                     if ($sharedPost) {
-                        $notification = PostNotification::createNotification(
-                            $otherUserId,
-                            $user->id,
-                            $sharedPostId,
-                            PostNotification::TYPE_SHARE
-                        );
+                        $ablyKey = config('services.ably.key');
+                        $ably = $ablyKey ? new AblyRest($ablyKey) : null;
 
-                        // Broadcast notification in real-time via Ably (same schema as PostController)
-                        if ($notification) {
-                            $ablyKey = config('services.ably.key');
-                            if ($ablyKey) {
-                                $ably = new AblyRest($ablyKey);
+                        foreach ($recipientIds as $otherUserId) {
+                            $notification = PostNotification::createNotification(
+                                $otherUserId,
+                                $user->id,
+                                $sharedPostId,
+                                PostNotification::TYPE_SHARE
+                            );
+
+                            if ($notification && $ably) {
                                 $channel = $ably->channels->get("notifications:{$otherUserId}");
                                 $channel->publish('new_notification', [
                                     'id' => 'post-' . $notification->id,
@@ -444,7 +461,6 @@ class ChatController extends Controller
                             'post_id' => $sharedPostId,
                             'conversation_id' => (int) $conversationId,
                             'sender_id' => (int) $user->id,
-                            'receiver_id' => (int) $otherUserId,
                         ]);
                     }
                 }
@@ -456,111 +472,43 @@ class ChatController extends Controller
             ]);
         }
 
-        // Send Expo push notification
-        // For post shares we already notify via PostNotification (with its own Expo push + Ably notification),
-        // so skip the generic chat push to avoid duplicate pushes.
-        if ($message && !$isPostShareMessage) {
+        // Send Expo push notification to all other participants
+        if ($message && ! $isPostShareMessage) {
             try {
-                \Illuminate\Support\Facades\Log::info('Attempting to send push notification for chat message', [
-                    'message_id' => $message->id,
-                    'conversation_id' => $conversation->id,
-                    'sender_id' => $user->id,
-                    'user_one_id' => $conversation->user_one_id,
-                    'user_two_id' => $conversation->user_two_id,
-                ]);
-                
-                // Use the correct field names: user_one_id and user_two_id
-                $recipientId = $conversation->user_one_id == $user->id ? $conversation->user_two_id : $conversation->user_one_id;
-                \Illuminate\Support\Facades\Log::info('Calculated recipient ID', ['recipient_id' => $recipientId]);
-                
-                /** @var \App\Models\User|null $recipient */
-                $recipient = \App\Models\User::find($recipientId);
-                
-                if ($recipient && $user) {
-                    \Illuminate\Support\Facades\Log::info('Recipient and sender found', [
-                        'recipient_id' => $recipient->id,
-                        'recipient_email' => $recipient->email,
+                $pushService = app(\App\Services\ExpoPushNotificationService::class);
+                $messageBody = $request->body ?? ($attachmentName ? 'Sent an attachment' : 'Sent a message');
+                $previewTitle = $conversation->isGroup()
+                    ? ($conversation->name ?: 'Group')
+                    : $user->name;
+                $chatMessage = $conversation->isGroup()
+                    ? "{$user->name}: {$messageBody}"
+                    : "{$user->name}: {$messageBody}";
+
+                foreach ($recipientIds as $recipientId) {
+                    $recipient = User::find($recipientId)?->fresh();
+                    if (! $recipient || empty($recipient->expo_push_token)) {
+                        continue;
+                    }
+
+                    $pushService->sendToUser($recipient, $previewTitle, $chatMessage, [
+                        'type' => 'chat_message',
+                        'conversation_id' => $conversation->id,
+                        'conversation_type' => $conversation->type ?? Conversation::TYPE_DIRECT,
+                        'message_id' => $message->id,
                         'sender_id' => $user->id,
-                    ]);
-                    
-                    // Reload recipient to get latest expo_push_token (Intelephense-friendly)
-                    $recipient = $recipient->fresh();
-                    if (!$recipient) {
-                        \Illuminate\Support\Facades\Log::warning('Recipient disappeared after reload', [
-                            'recipient_id' => $recipientId,
-                            'conversation_id' => $conversation->id,
-                        ]);
-                        // Bail out gracefully (do not break message send)
-                        return response()->json(['message' => 'Message sent'], 201);
-                    }
-                    
-                    \Illuminate\Support\Facades\Log::info('Recipient refreshed', [
-                        'recipient_id' => $recipient->id,
-                        'has_expo_token' => !empty($recipient->expo_push_token),
-                        'token_preview' => $recipient->expo_push_token ? substr($recipient->expo_push_token, 0, 30) . '...' : null,
-                    ]);
-                    
-                    if ($recipient->expo_push_token) {
-                        $pushService = app(\App\Services\ExpoPushNotificationService::class);
-                        
-                        $messageBody = $request->body ?? ($attachmentName ? "Sent an attachment" : "Sent a message");
-                        $chatMessage = "{$user->name}: {$messageBody}";
-                        
-                        \Illuminate\Support\Facades\Log::info('Sending push notification for chat message', [
-                            'recipient_id' => $recipientId,
-                            'sender_id' => $user->id,
-                            'conversation_id' => $conversation->id,
-                            'message_id' => $message->id,
-                            'chat_message' => $chatMessage,
-                        ]);
-                        
-                        $success = $pushService->sendToUser($recipient, $user->name, $chatMessage, [
-                            'type' => 'chat_message',
-                            'conversation_id' => $conversation->id,
-                            'message_id' => $message->id,
-                            'sender_id' => $user->id,
-                            'sender_name' => $user->name,
-                        ]);
-                        
-                        if (!$success) {
-                            \Illuminate\Support\Facades\Log::warning('Push notification send returned false for chat message', [
-                                'recipient_id' => $recipientId,
-                                'message_id' => $message->id,
-                            ]);
-                        } else {
-                            \Illuminate\Support\Facades\Log::info('Push notification sent successfully for chat message', [
-                                'recipient_id' => $recipientId,
-                                'message_id' => $message->id,
-                            ]);
-                        }
-                    } else {
-                        \Illuminate\Support\Facades\Log::info('Recipient does not have Expo push token, skipping push notification', [
-                            'recipient_id' => $recipientId,
-                            'recipient_email' => $recipient->email,
-                        ]);
-                    }
-                } else {
-                    \Illuminate\Support\Facades\Log::warning('Recipient or sender not found for push notification', [
-                        'recipient_found' => $recipient ? true : false,
-                        'sender_found' => $user ? true : false,
-                        'recipient_id' => $recipientId,
+                        'sender_name' => $user->name,
                     ]);
                 }
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Failed to send Expo push notification for chat message', [
+                Log::error('Failed to send Expo push notification for chat message', [
                     'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
                     'conversation_id' => $conversation->id,
                     'message_id' => $message->id ?? null,
                 ]);
-                // Don't fail message creation if push fails
             }
-        } else {
-            \Illuminate\Support\Facades\Log::warning('Message not created, skipping push notification');
         }
 
-        // When you reply, mark all previous messages from the other user as read
-        // This means you've seen their messages
+        // When you reply, mark all previous messages from others as read
         $readCount = $conversation->messages()
             ->where('sender_id', '!=', $user->id)
             ->where('is_read', false)
@@ -581,14 +529,13 @@ class ChatController extends Controller
                 if ($ablyKey) {
                     $ably = new AblyRest($ablyKey);
                     $channel = $ably->channels->get("chat:conversation:{$conversationId}");
-                    
-                    // Get the last message that was marked as read
+
                     $lastReadMessage = $conversation->messages()
                         ->where('sender_id', '!=', $user->id)
                         ->where('is_read', true)
                         ->orderBy('read_at', 'desc')
                         ->first();
-                    
+
                     $channel->publish('seen', [
                         'user_id' => $user->id,
                         'conversation_id' => $conversationId,
@@ -618,11 +565,9 @@ class ChatController extends Controller
                 $channel->publish('new-message', $messageData);
             }
         } catch (\Exception $e) {
-            // Log error but don't fail the request
             \Illuminate\Support\Facades\Log::error('Failed to broadcast message via Ably: ' . $e->getMessage());
         }
 
-        // Always return JSON for fetch requests
         return response()->json([
             'message' => $messageData,
         ], 201);
@@ -710,9 +655,7 @@ class ChatController extends Controller
     {
         $user = Auth::user();
 
-        $conversations = Conversation::where('user_one_id', $user->id)
-            ->orWhere('user_two_id', $user->id)
-            ->get();
+        $conversations = Conversation::forUser((int) $user->id)->get();
 
         $totalUnread = 0;
         foreach ($conversations as $conversation) {
@@ -737,12 +680,7 @@ class ChatController extends Controller
     {
         $user = Auth::user();
 
-        $conversation = Conversation::where('id', $conversationId)
-            ->where(function ($query) use ($user) {
-                $query->where('user_one_id', $user->id)
-                    ->orWhere('user_two_id', $user->id);
-            })
-            ->firstOrFail();
+        $conversation = $this->findAccessibleConversation((int) $conversationId, $user);
 
         $updatedCount = $conversation->messages()
             ->where('sender_id', '!=', $user->id)
@@ -898,16 +836,24 @@ class ChatController extends Controller
     {
         $user = Auth::user();
 
-        $conversation = Conversation::where('id', $conversationId)
-            ->where(function ($query) use ($user) {
-                $query->where('user_one_id', $user->id)
-                    ->orWhere('user_two_id', $user->id);
-            })
-            ->firstOrFail();
+        $conversation = $this->findAccessibleConversation((int) $conversationId, $user);
+
+        if ($conversation->isGroup()) {
+            // Members leave; only the creator can wipe the whole group.
+            if ((int) $conversation->created_by === (int) $user->id) {
+                $conversation->delete();
+            } else {
+                ConversationParticipant::query()
+                    ->where('conversation_id', $conversation->id)
+                    ->where('user_id', $user->id)
+                    ->delete();
+            }
+
+            return response()->json(['success' => true]);
+        }
 
         $conversation->delete();
 
-        // Always return JSON for fetch requests
         return response()->json(['success' => true]);
     }
 
@@ -925,10 +871,7 @@ class ChatController extends Controller
         $message = Message::query()->with('conversation')->findOrFail($messageId);
         $conversation = $message->conversation;
 
-        if (
-            ! $conversation
-            || ($conversation->user_one_id !== $user->id && $conversation->user_two_id !== $user->id)
-        ) {
+        if (! $conversation || ! $conversation->hasParticipant((int) $user->id)) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -984,7 +927,7 @@ class ChatController extends Controller
         $message = Message::query()->with('conversation')->findOrFail($messageId);
         $conversation = $message->conversation;
 
-        if (! $conversation || ((int) $conversation->user_one_id !== (int) $user->id && (int) $conversation->user_two_id !== (int) $user->id)) {
+        if (! $conversation || ! $conversation->hasParticipant((int) $user->id)) {
             abort(403);
         }
 
@@ -1191,5 +1134,337 @@ class ChatController extends Controller
         }
 
         return 'file';
+    }
+
+    /**
+     * Create a group conversation.
+     * Body: { name: string, member_ids: int[] } — creator is added automatically.
+     */
+    public function createGroup(Request $request)
+    {
+        $user = Auth::user();
+        $data = $request->validate([
+            'name' => 'required|string|max:120',
+            'member_ids' => 'required|array|min:1|max:50',
+            'member_ids.*' => 'integer|distinct|exists:users,id',
+        ]);
+
+        $memberIds = collect($data['member_ids'])
+            ->map(fn ($id) => (int) $id)
+            ->reject(fn ($id) => $id === (int) $user->id)
+            ->unique()
+            ->values();
+
+        if ($memberIds->isEmpty()) {
+            return response()->json(['error' => 'Add at least one other member.'], 422);
+        }
+
+        $followingIds = \App\Models\Follower::where('follower_id', $user->id)
+            ->whereIn('followed_id', $memberIds)
+            ->pluck('followed_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $notFollowed = $memberIds->reject(fn ($id) => in_array($id, $followingIds, true))->values();
+        if ($notFollowed->isNotEmpty()) {
+            return response()->json([
+                'error' => 'You can only add people you follow.',
+                'invalid_member_ids' => $notFollowed->all(),
+            ], 403);
+        }
+
+        $conversation = DB::transaction(function () use ($user, $data, $memberIds) {
+            $conversation = Conversation::create([
+                'type' => Conversation::TYPE_GROUP,
+                'name' => trim($data['name']),
+                'created_by' => $user->id,
+                'user_one_id' => null,
+                'user_two_id' => null,
+                'last_message_at' => now(),
+            ]);
+
+            ConversationParticipant::create([
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+                'role' => 'owner',
+                'joined_at' => now(),
+            ]);
+
+            foreach ($memberIds as $memberId) {
+                ConversationParticipant::create([
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $memberId,
+                    'role' => 'member',
+                    'joined_at' => now(),
+                ]);
+            }
+
+            return $conversation;
+        });
+
+        return response()->json([
+            'conversation' => $this->serializeGroupConversation($conversation->fresh(), $user),
+        ], 201);
+    }
+
+    /**
+     * Open a group conversation by id (with recent messages).
+     */
+    public function showGroup($conversationId)
+    {
+        $user = Auth::user();
+        $conversation = $this->findAccessibleConversation((int) $conversationId, $user);
+
+        if (! $conversation->isGroup()) {
+            return response()->json(['error' => 'Not a group conversation.'], 422);
+        }
+
+        $conversation->load([
+            'participantRows.user:id,name,image,email,last_login,last_online',
+            'messages' => function ($query) {
+                $query->with([
+                    'sender:id,name,image',
+                    'replyTo.sender:id,name',
+                    'reactions.user:id,name',
+                ])->orderBy('created_at', 'asc');
+            },
+        ]);
+
+        $payload = $this->serializeGroupConversation($conversation, $user);
+        $payload['messages'] = $conversation->messages->map(
+            fn ($message) => $this->serializeChatMessage($message, true)
+        )->values()->all();
+
+        return response()->json(['conversation' => $payload]);
+    }
+
+    /**
+     * Rename a group (owner/admin only).
+     */
+    public function updateGroup(Request $request, $conversationId)
+    {
+        $user = Auth::user();
+        $conversation = $this->findAccessibleConversation((int) $conversationId, $user);
+        if (! $conversation->isGroup()) {
+            return response()->json(['error' => 'Not a group conversation.'], 422);
+        }
+
+        $pivot = ConversationParticipant::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $pivot || ! in_array($pivot->role, ['owner', 'admin'], true)) {
+            return response()->json(['error' => 'Only group admins can rename the group.'], 403);
+        }
+
+        $data = $request->validate([
+            'name' => 'required|string|max:120',
+        ]);
+
+        $conversation->update(['name' => trim($data['name'])]);
+
+        return response()->json([
+            'conversation' => $this->serializeGroupConversation($conversation->fresh(), $user),
+        ]);
+    }
+
+    /**
+     * Add members to a group (owner/admin). Members must be followed by the actor.
+     */
+    public function addGroupMembers(Request $request, $conversationId)
+    {
+        $user = Auth::user();
+        $conversation = $this->findAccessibleConversation((int) $conversationId, $user);
+        if (! $conversation->isGroup()) {
+            return response()->json(['error' => 'Not a group conversation.'], 422);
+        }
+
+        $pivot = ConversationParticipant::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $pivot || ! in_array($pivot->role, ['owner', 'admin'], true)) {
+            return response()->json(['error' => 'Only group admins can add members.'], 403);
+        }
+
+        $data = $request->validate([
+            'member_ids' => 'required|array|min:1|max:50',
+            'member_ids.*' => 'integer|distinct|exists:users,id',
+        ]);
+
+        $memberIds = collect($data['member_ids'])
+            ->map(fn ($id) => (int) $id)
+            ->reject(fn ($id) => $id === (int) $user->id)
+            ->unique()
+            ->values();
+
+        $followingIds = \App\Models\Follower::where('follower_id', $user->id)
+            ->whereIn('followed_id', $memberIds)
+            ->pluck('followed_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $notFollowed = $memberIds->reject(fn ($id) => in_array($id, $followingIds, true))->values();
+        if ($notFollowed->isNotEmpty()) {
+            return response()->json([
+                'error' => 'You can only add people you follow.',
+                'invalid_member_ids' => $notFollowed->all(),
+            ], 403);
+        }
+
+        $existing = ConversationParticipant::query()
+            ->where('conversation_id', $conversation->id)
+            ->whereIn('user_id', $memberIds)
+            ->pluck('user_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        foreach ($memberIds as $memberId) {
+            if (in_array($memberId, $existing, true)) {
+                continue;
+            }
+            ConversationParticipant::create([
+                'conversation_id' => $conversation->id,
+                'user_id' => $memberId,
+                'role' => 'member',
+                'joined_at' => now(),
+            ]);
+        }
+
+        $conversation->update(['last_message_at' => now()]);
+
+        return response()->json([
+            'conversation' => $this->serializeGroupConversation($conversation->fresh(), $user),
+        ]);
+    }
+
+    /**
+     * Remove a member (owner/admin) or leave the group (self).
+     */
+    public function removeGroupMember($conversationId, $userId)
+    {
+        $user = Auth::user();
+        $conversation = $this->findAccessibleConversation((int) $conversationId, $user);
+        if (! $conversation->isGroup()) {
+            return response()->json(['error' => 'Not a group conversation.'], 422);
+        }
+
+        $targetId = (int) $userId;
+        $isSelf = $targetId === (int) $user->id;
+
+        $actorPivot = ConversationParticipant::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $actorPivot) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        if (! $isSelf && ! in_array($actorPivot->role, ['owner', 'admin'], true)) {
+            return response()->json(['error' => 'Only group admins can remove members.'], 403);
+        }
+
+        if ($targetId === (int) $conversation->created_by && ! $isSelf) {
+            return response()->json(['error' => 'Cannot remove the group owner.'], 422);
+        }
+
+        $targetPivot = ConversationParticipant::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $targetId)
+            ->first();
+
+        if (! $targetPivot) {
+            return response()->json(['error' => 'Member not found.'], 404);
+        }
+
+        $targetPivot->delete();
+
+        // If owner leaves, promote oldest remaining admin/member to owner.
+        if ($isSelf && (int) $conversation->created_by === (int) $user->id) {
+            $next = ConversationParticipant::query()
+                ->where('conversation_id', $conversation->id)
+                ->orderByRaw("CASE role WHEN 'admin' THEN 0 WHEN 'member' THEN 1 ELSE 2 END")
+                ->orderBy('joined_at')
+                ->first();
+
+            if ($next) {
+                $next->update(['role' => 'owner']);
+                $conversation->update(['created_by' => $next->user_id]);
+            } else {
+                $conversation->delete();
+
+                return response()->json(['success' => true, 'deleted' => true]);
+            }
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    private function findAccessibleConversation(int $conversationId, User $user): Conversation
+    {
+        $conversation = Conversation::query()->findOrFail($conversationId);
+
+        if (! $conversation->hasParticipant((int) $user->id)) {
+            abort(404);
+        }
+
+        return $conversation;
+    }
+
+    private function syncDirectParticipants(Conversation $conversation): void
+    {
+        if ($conversation->isGroup()) {
+            return;
+        }
+
+        foreach (array_filter([(int) $conversation->user_one_id, (int) $conversation->user_two_id]) as $uid) {
+            ConversationParticipant::query()->firstOrCreate(
+                [
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $uid,
+                ],
+                [
+                    'role' => 'member',
+                    'joined_at' => now(),
+                ]
+            );
+        }
+    }
+
+    private function serializeGroupConversation(Conversation $conversation, User $user): array
+    {
+        $conversation->loadMissing(['participantRows.user:id,name,image,email,last_login,last_online']);
+
+        $participants = $conversation->participantRows
+            ->filter(fn ($row) => $row->user !== null)
+            ->map(fn ($row) => [
+                'id' => $row->user->id,
+                'name' => $row->user->name,
+                'image' => $row->user->image,
+                'email' => $row->user->email,
+                'role' => $row->role ?? 'member',
+            ])
+            ->values()
+            ->all();
+
+        $myRole = collect($participants)->firstWhere('id', $user->id)['role'] ?? 'member';
+
+        return [
+            'id' => $conversation->id,
+            'type' => Conversation::TYPE_GROUP,
+            'name' => $conversation->name,
+            'avatar' => $conversation->avatar,
+            'created_by' => $conversation->created_by,
+            'is_owner' => (int) $conversation->created_by === (int) $user->id,
+            'my_role' => $myRole,
+            'members_count' => count($participants),
+            'participants' => $participants,
+            'other_user' => null,
+            'last_message_at' => $conversation->last_message_at?->toISOString(),
+            'created_at' => $conversation->created_at?->toISOString(),
+        ];
     }
 }

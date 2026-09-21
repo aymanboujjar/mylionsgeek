@@ -152,18 +152,14 @@ test('sender must belong to the conversation', function () {
         ->and(Storage::disk('public')->allFiles('chat/attachments'))->toBeEmpty();
 });
 
-test('sender must follow the other participant', function () {
+test('existing conversation allows send without follow relationship', function () {
     $sender = m4User();
     $recipient = m4User();
     $conversation = m4Conversation($sender, $recipient, follow: false);
 
     m4Send($sender, $conversation, [
         'attachment' => UploadedFile::fake()->image('photo.jpg'),
-    ])
-        ->assertForbidden()
-        ->assertJsonPath('error', 'You can only message users you follow');
+    ])->assertCreated();
 
-    expect(Message::query()->count())->toBe(0)
-        ->and(Storage::disk('attachments')->allFiles('chat/attachments'))->toBeEmpty()
-        ->and(Storage::disk('public')->allFiles('chat/attachments'))->toBeEmpty();
+    expect(Message::query()->count())->toBe(1);
 });

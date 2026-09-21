@@ -99,6 +99,11 @@ Route::middleware('auth:sanctum')->prefix('mobile')->group(function () {
         Route::get('/following-ids', [ChatController::class, 'getFollowingIds'])->name('following-ids');
         Route::get('/following-users', [ChatController::class, 'getFollowingUsers'])->name('following-users');
         Route::get('/unread-count', [ChatController::class, 'getUnreadCount'])->name('unread-count');
+        Route::post('/groups', [ChatController::class, 'createGroup'])->name('groups.store');
+        Route::get('/groups/{conversationId}', [ChatController::class, 'showGroup'])->name('groups.show');
+        Route::put('/groups/{conversationId}', [ChatController::class, 'updateGroup'])->name('groups.update');
+        Route::post('/groups/{conversationId}/members', [ChatController::class, 'addGroupMembers'])->name('groups.members.add');
+        Route::delete('/groups/{conversationId}/members/{userId}', [ChatController::class, 'removeGroupMember'])->name('groups.members.remove');
         Route::get('/conversation/{userId}', [ChatController::class, 'getOrCreateConversation'])->name('conversation');
         Route::get('/conversation/{conversationId}/messages', [ChatController::class, 'getMessages'])->name('messages');
         Route::post('/conversation/{conversationId}/send', [ChatController::class, 'sendMessage'])->name('send');

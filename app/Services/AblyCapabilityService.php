@@ -104,10 +104,7 @@ class AblyCapabilityService
     public function conversationIdsFor(User $user): array
     {
         return Conversation::query()
-            ->where(function ($query) use ($user) {
-                $query->where('user_one_id', $user->id)
-                    ->orWhere('user_two_id', $user->id);
-            })
+            ->forUser((int) $user->id)
             ->orderBy('id')
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
