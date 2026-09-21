@@ -44,6 +44,7 @@ class Call extends Model
         'answered_at',
         'ended_at',
         'duration',
+        'voip_uuid',
     ];
 
     protected function casts(): array

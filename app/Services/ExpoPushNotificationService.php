@@ -87,37 +87,32 @@ class ExpoPushNotificationService
         // notification channel registered in the mobile app so the device
         // rings persistently like a phone call (loud, repeating vibration,
         // bypass Do Not Disturb).
-        $isIncomingCall = isset($data['type']) && $data['type'] === 'incoming_call';
-        $channelId = $isIncomingCall ? 'incoming-calls' : 'default';
-        // Critical iOS APS settings – `interruptionLevel: critical` would
-        // require the Critical Alerts entitlement (production builds only),
-        // so we use `time-sensitive` which works in dev/Expo Go.
-        $iosInterruptionLevel = $isIncomingCall ? 'time-sensitive' : 'active';
+        $isCallWake = isset($data['type']) && in_array($data['type'], ['incoming_call', 'call_cancelled'], true);
+        $channelId = ($data['type'] ?? null) === 'incoming_call' ? 'incoming-calls' : 'default';
+        $iosInterruptionLevel = $isCallWake ? 'time-sensitive' : 'active';
 
         // Prepare messages for Expo API
         $messages = [];
         foreach ($tokenArray as $token) {
             $payload = [
                 'to' => $token,
-                // CallKeep owns the ringtone when available; keep a default sound
-                // as a fallback so the device still alerts if CallKit/Telecom
-                // is not yet registered on the handset.
-                'sound' => 'default',
-                'title' => $title,
-                'body' => $body,
                 'data' => $data,
                 'priority' => 'high',
                 'channelId' => $channelId,
-                '_displayInForeground' => true,
-                'interruptionLevel' => $iosInterruptionLevel,
-                'ttl' => $isIncomingCall ? 45 : null,
             ];
 
-            if ($isIncomingCall) {
-                // Wake JS so CallKeep can present the native incoming-call UI.
+            if ($isCallWake) {
+                // Data-only wake: native CallKit/CallKeep + in-app ringtone.
+                // Do not attach title/body/sound or the OS shows a chat-style banner.
+                $payload['contentAvailable'] = true;
                 $payload['_contentAvailable'] = true;
-                $payload['mutableContent'] = true;
-                $payload['categoryId'] = 'incoming_call';
+                $payload['ttl'] = $data['type'] === 'call_cancelled' ? 30 : 45;
+            } else {
+                $payload['sound'] = 'default';
+                $payload['title'] = $title;
+                $payload['body'] = $body;
+                $payload['_displayInForeground'] = true;
+                $payload['interruptionLevel'] = $iosInterruptionLevel;
             }
 
             $messages[] = $payload;
@@ -297,6 +292,20 @@ class ExpoPushNotificationService
         }
         
         return $successCount;
+    }
+
+    /**
+     * High-priority data-only message (no banner / no notification sound).
+     * Wakes CallKeep on Android and stops ringing after hangup.
+     */
+    public function sendDataOnly(User $user, array $data): bool
+    {
+        $user->refresh();
+        if (! $user->expo_push_token) {
+            return false;
+        }
+
+        return $this->send($user->expo_push_token, '', '', $data);
     }
 
     /**

@@ -29,6 +29,7 @@ class CallController extends Controller
             'channel_name' => $call->channel_name,
             'type' => $call->type ?? Call::TYPE_AUDIO,
             'status' => $call->status,
+            'uuid' => $call->voip_uuid,
             'started_at' => $call->started_at,
             'answered_at' => $call->answered_at,
             'ended_at' => $call->ended_at,
@@ -187,6 +188,7 @@ class CallController extends Controller
                 'type' => $call->type ?? Call::TYPE_AUDIO,
                 'call_type' => $call->type ?? Call::TYPE_AUDIO,
                 'status' => $call->status,
+                'uuid' => $call->voip_uuid,
                 'caller' => [
                     'id' => $call->caller->id,
                     'name' => $call->caller->name,
