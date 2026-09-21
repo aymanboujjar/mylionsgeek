@@ -263,7 +263,10 @@ class CallService
 
         $this->publishToUserChannel($call->caller_id, 'call-rejected', [
             'call_id' => $call->id,
+            'uuid' => $call->voip_uuid,
         ]);
+        // Stop CallKit / CallKeep on other callee devices still ringing.
+        $this->signalCalleeStopRinging($call);
     }
 
     public function cancel(int $callId, User $caller): void
@@ -303,6 +306,7 @@ class CallService
         // Keep legacy event name for older clients.
         $this->publishToUserChannel($call->callee_id, 'call-ended', [
             'call_id' => $call->id,
+            'uuid' => $call->voip_uuid,
         ]);
         $this->signalCalleeStopRinging($call);
     }
@@ -462,19 +466,25 @@ class CallService
                 'ended_at' => now(),
             ]);
 
-            $this->publishToUserChannel((int) $call->caller_id, 'call-missed', [
+            $uuid = is_string($call->voip_uuid) ? $call->voip_uuid : null;
+            $missedPayload = [
                 'call_id' => $call->id,
-            ]);
-            $this->publishToUserChannel((int) $call->callee_id, 'call-missed', [
-                'call_id' => $call->id,
-            ]);
+                'uuid' => $uuid,
+            ];
+
+            $this->publishToUserChannel((int) $call->caller_id, 'call-missed', $missedPayload);
+            $this->publishToUserChannel((int) $call->callee_id, 'call-missed', $missedPayload);
             // Legacy client compatibility.
             $this->publishToUserChannel((int) $call->caller_id, 'call-ended', [
                 'call_id' => $call->id,
+                'uuid' => $uuid,
             ]);
             $this->publishToUserChannel((int) $call->callee_id, 'call-ended', [
                 'call_id' => $call->id,
+                'uuid' => $uuid,
             ]);
+            // Stop CallKit / CallKeep — same path as cancel().
+            $this->signalCalleeStopRinging($call);
             $count++;
         }
 

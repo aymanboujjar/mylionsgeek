@@ -599,8 +599,24 @@ class MobileProjectMutationController extends Controller
 
         $request->validate([
             'file' => 'required|file|mimes:'.self::ATTACHMENT_MIMES.'|max:10240',
-            'task_id' => 'nullable|exists:tasks,id',
+            'task_id' => 'nullable|integer',
         ]);
+
+        $taskId = $request->input('task_id');
+        if ($taskId !== null && $taskId !== '') {
+            $taskId = (int) $taskId;
+            $belongsToProject = Task::query()
+                ->where('project_id', $project->id)
+                ->whereKey($taskId)
+                ->exists();
+            if (! $belongsToProject) {
+                return response()->json([
+                    'message' => 'task_id must belong to this project.',
+                ], 422);
+            }
+        } else {
+            $taskId = null;
+        }
 
         $file = $request->file('file');
         $path = $file->store('attachments', 'attachments');
@@ -612,7 +628,7 @@ class MobileProjectMutationController extends Controller
             'mime_type' => $file->getMimeType(),
             'size' => $file->getSize(),
             'project_id' => $project->id,
-            'task_id' => $request->input('task_id'),
+            'task_id' => $taskId,
             'uploaded_by' => $user->id,
         ]);
 

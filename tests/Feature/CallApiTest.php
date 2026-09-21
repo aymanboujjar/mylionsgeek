@@ -305,16 +305,18 @@ test('initiate stores a voip uuid for callkit hangup', function () {
     $caller = callUser();
     $callee = callUser();
 
-    $this->actingAs($caller, 'sanctum')
+    $response = $this->actingAs($caller, 'sanctum')
         ->postJson('/api/mobile/calls/initiate', [
             'callee_id' => $callee->id,
             'type' => 'audio',
         ])
-        ->assertCreated();
+        ->assertCreated()
+        ->assertJsonStructure(['call' => ['uuid']]);
 
     $call = Call::query()->first();
     expect($call?->voip_uuid)->not->toBeEmpty()
-        ->and($call->voip_uuid)->toMatch('/^[0-9a-f-]{36}$/i');
+        ->and($call->voip_uuid)->toMatch('/^[0-9a-f-]{36}$/i')
+        ->and($response->json('call.uuid'))->toBe($call->voip_uuid);
 });
 
 test('initiate skips expo wake when voip push is delivered', function () {
@@ -340,24 +342,112 @@ test('initiate skips expo wake when voip push is delivered', function () {
 test('cancel sends hangup voip and silent expo wake', function () {
     $caller = callUser();
     $callee = callUser(['apns_voip_token' => str_repeat('b', 64)]);
+    $capturedUuid = null;
 
-    $this->mock(\App\Services\ApnsVoipPushService::class, function ($mock) {
+    $this->mock(\App\Services\ApnsVoipPushService::class, function ($mock) use (&$capturedUuid) {
         $mock->shouldReceive('sendIncomingCall')->once()->andReturn(true);
-        $mock->shouldReceive('sendHangup')->once()->andReturn(true);
+        $mock->shouldReceive('sendHangup')
+            ->once()
+            ->withArgs(function ($user, $uuid, $callId) use (&$capturedUuid) {
+                $capturedUuid = $uuid;
+
+                return is_string($uuid) && preg_match('/^[0-9a-f-]{36}$/i', $uuid) === 1
+                    && (int) $callId > 0;
+            })
+            ->andReturn(true);
     });
     $this->mock(\App\Services\ExpoPushNotificationService::class, function ($mock) {
-        $mock->shouldReceive('sendDataOnly')->once()->andReturn(true);
+        $mock->shouldReceive('sendDataOnly')
+            ->once()
+            ->withArgs(function ($user, $data) {
+                return ($data['type'] ?? null) === 'call_cancelled'
+                    && ! empty($data['uuid']);
+            })
+            ->andReturn(true);
     });
 
     $callId = $this->actingAs($caller, 'sanctum')
         ->postJson('/api/mobile/calls/initiate', ['callee_id' => $callee->id])
         ->json('call_id');
 
+    $storedUuid = Call::find($callId)?->voip_uuid;
+
     $this->actingAs($caller, 'sanctum')
         ->postJson("/api/mobile/calls/{$callId}/cancel")
         ->assertOk();
 
-    expect(Call::find($callId)->status)->toBe(Call::STATUS_CANCELLED);
+    expect(Call::find($callId)->status)->toBe(Call::STATUS_CANCELLED)
+        ->and($capturedUuid)->toBe($storedUuid);
+});
+
+test('missed ringing timeout stops callee callkit via hangup', function () {
+    $caller = callUser();
+    $callee = callUser(['apns_voip_token' => str_repeat('c', 64)]);
+
+    $this->mock(\App\Services\ApnsVoipPushService::class, function ($mock) {
+        $mock->shouldReceive('sendIncomingCall')->once()->andReturn(true);
+        $mock->shouldReceive('sendHangup')
+            ->once()
+            ->withArgs(function ($user, $uuid, $callId) {
+                return is_string($uuid) && preg_match('/^[0-9a-f-]{36}$/i', $uuid) === 1;
+            })
+            ->andReturn(true);
+    });
+    $this->mock(\App\Services\ExpoPushNotificationService::class, function ($mock) {
+        $mock->shouldReceive('sendDataOnly')
+            ->once()
+            ->withArgs(function ($user, $data) {
+                return ($data['type'] ?? null) === 'call_cancelled'
+                    && ! empty($data['uuid']);
+            })
+            ->andReturn(true);
+    });
+
+    $callId = $this->actingAs($caller, 'sanctum')
+        ->postJson('/api/mobile/calls/initiate', ['callee_id' => $callee->id])
+        ->json('call_id');
+
+    Call::query()->whereKey($callId)->update([
+        'created_at' => now()->subSeconds(Call::RING_TIMEOUT_SECONDS + 5),
+    ]);
+
+    $missed = app(\App\Services\CallService::class)->markMissedRingingCalls();
+
+    expect($missed)->toBe(1)
+        ->and(Call::find($callId)->status)->toBe(Call::STATUS_MISSED);
+});
+
+test('reject stops ringing on other callee devices', function () {
+    $caller = callUser();
+    $callee = callUser(['apns_voip_token' => str_repeat('d', 64)]);
+
+    $this->mock(\App\Services\ApnsVoipPushService::class, function ($mock) {
+        $mock->shouldReceive('sendIncomingCall')->once()->andReturn(true);
+        $mock->shouldReceive('sendHangup')
+            ->once()
+            ->withArgs(function ($user, $uuid, $callId) {
+                return is_string($uuid) && preg_match('/^[0-9a-f-]{36}$/i', $uuid) === 1;
+            })
+            ->andReturn(true);
+    });
+    $this->mock(\App\Services\ExpoPushNotificationService::class, function ($mock) {
+        $mock->shouldReceive('sendDataOnly')
+            ->once()
+            ->withArgs(function ($user, $data) {
+                return ($data['type'] ?? null) === 'call_cancelled';
+            })
+            ->andReturn(true);
+    });
+
+    $callId = $this->actingAs($caller, 'sanctum')
+        ->postJson('/api/mobile/calls/initiate', ['callee_id' => $callee->id])
+        ->json('call_id');
+
+    $this->actingAs($callee, 'sanctum')
+        ->postJson("/api/mobile/calls/{$callId}/reject")
+        ->assertOk();
+
+    expect(Call::find($callId)->status)->toBe(Call::STATUS_REJECTED);
 });
 
 test('callee can get agora token after accepting', function () {

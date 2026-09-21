@@ -6,7 +6,9 @@ use App\Models\ProjectUser;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
 
@@ -323,4 +325,59 @@ test('non staff cannot create projects', function () {
     $this->actingAs($student, 'sanctum')
         ->postJson('/api/mobile/projects', ['name' => 'Student project'])
         ->assertForbidden();
+});
+
+test('non member cannot mutate project and member cannot manage team', function () {
+    $owner = mobileProjectUser(['role' => ['admin']]);
+    $member = mobileProjectUser(['role' => ['pro']]);
+    $stranger = mobileProjectUser(['role' => ['coach']]);
+    $project = mobileProject($owner);
+    attachProjectMember($project, $owner, 'owner');
+    attachProjectMember($project, $member, 'member');
+
+    $this->actingAs($stranger, 'sanctum')
+        ->postJson("/api/mobile/projects/{$project->id}/tasks", [
+            'title' => 'Intrusion',
+        ])
+        ->assertNotFound();
+
+    $this->actingAs($stranger, 'sanctum')
+        ->postJson("/api/mobile/projects/{$project->id}", [
+            'name' => 'Hijacked',
+        ])
+        ->assertForbidden();
+
+    $this->actingAs($member, 'sanctum')
+        ->postJson("/api/mobile/projects/{$project->id}/members", [
+            'user_id' => $stranger->id,
+            'role' => 'member',
+        ])
+        ->assertForbidden();
+});
+
+test('attachment task_id must belong to the same project', function () {
+    Storage::fake('attachments');
+
+    $owner = mobileProjectUser(['role' => ['admin']]);
+    $otherOwner = mobileProjectUser(['role' => ['coach']]);
+    $project = mobileProject($owner);
+    $other = mobileProject($otherOwner, 'Other project');
+    attachProjectMember($project, $owner, 'owner');
+    attachProjectMember($other, $otherOwner, 'owner');
+
+    $foreignTask = Task::query()->create([
+        'title' => 'Foreign task',
+        'status' => 'todo',
+        'priority' => 'medium',
+        'project_id' => $other->id,
+        'created_by' => $otherOwner->id,
+    ]);
+
+    $this->actingAs($owner, 'sanctum')
+        ->post("/api/mobile/projects/{$project->id}/attachments", [
+            'file' => UploadedFile::fake()->create('notes.pdf', 100, 'application/pdf'),
+            'task_id' => $foreignTask->id,
+        ], ['Accept' => 'application/json'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'task_id must belong to this project.');
 });

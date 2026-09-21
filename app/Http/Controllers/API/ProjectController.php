@@ -80,6 +80,19 @@ class ProjectController extends Controller
         return response()->json(['projects' => $projects]);
     }
 
+    /**
+     * Mobile project detail payload (breaking vs older thin responses).
+     *
+     * Returns:
+     * - project: id, name, description, status, photo, dates, my_role, is_owner,
+     *   can_manage_tasks, can_manage_team, can_create_projects, counts, progress, creator, timestamps
+     * - team: [{ id, name, email, avatar, role, is_owner }]
+     * - tasks: serialized tasks (incl. can_update_status)
+     * - notes: [{ id, title, content, is_pinned, tags, color, user, created_at }]
+     * - attachments: [{ id, name, mime_type, size, task_id, uploader, created_at }]
+     *
+     * Clients must not assume a flat project-only body or the absence of notes/attachments.
+     */
     public function show(Request $request, $id): JsonResponse
     {
         $user = Auth::guard('sanctum')->user();
