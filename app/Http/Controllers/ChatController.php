@@ -144,44 +144,64 @@ class ChatController extends Controller
     public function getOrCreateConversation($userId)
     {
         $currentUser = Auth::user();
+        $userId = (int) $userId;
 
-        if ($currentUser->id == $userId) {
+        if ((int) $currentUser->id === $userId) {
             if (request()->header('X-Inertia')) {
                 return redirect()->back()->withErrors(['error' => 'Cannot create conversation with yourself']);
             }
             return response()->json(['error' => 'Cannot create conversation with yourself'], 400);
         }
 
-        // Check if conversation exists
-        $conversation = Conversation::where(function ($query) use ($currentUser, $userId) {
-            $query->where('user_one_id', $currentUser->id)
-                ->where('user_two_id', $userId);
-        })->orWhere(function ($query) use ($currentUser, $userId) {
-            $query->where('user_one_id', $userId)
-                ->where('user_two_id', $currentUser->id);
-        })->first();
+        $userOne = min((int) $currentUser->id, $userId);
+        $userTwo = max((int) $currentUser->id, $userId);
 
-        // If no existing conversation, only allow creating one when the current user follows the target user.
-        if (!$conversation) {
-            $isFollowing = \App\Models\Follower::where('follower_id', $currentUser->id)
-                ->where('followed_id', $userId)
-                ->exists();
+        try {
+            $conversation = DB::transaction(function () use ($currentUser, $userId, $userOne, $userTwo) {
+                $conversation = Conversation::query()
+                    ->where('type', Conversation::TYPE_DIRECT)
+                    ->where('user_one_id', $userOne)
+                    ->where('user_two_id', $userTwo)
+                    ->lockForUpdate()
+                    ->first();
 
-            if (!$isFollowing) {
-                if (request()->header('X-Inertia')) {
-                    return redirect()->back()->withErrors(['error' => 'You can only message users you follow']);
+                if ($conversation) {
+                    $this->syncDirectParticipants($conversation);
+
+                    return $conversation;
                 }
-                return response()->json(['error' => 'You can only message users you follow'], 403);
+
+                $isFollowing = \App\Models\Follower::where('follower_id', $currentUser->id)
+                    ->where('followed_id', $userId)
+                    ->exists();
+
+                if (! $isFollowing) {
+                    throw new \InvalidArgumentException('You can only message users you follow');
+                }
+
+                $conversation = Conversation::create([
+                    'type' => Conversation::TYPE_DIRECT,
+                    'user_one_id' => $userOne,
+                    'user_two_id' => $userTwo,
+                ]);
+
+                $this->syncDirectParticipants($conversation);
+
+                return $conversation;
+            });
+        } catch (\InvalidArgumentException $e) {
+            if (request()->header('X-Inertia')) {
+                return redirect()->back()->withErrors(['error' => $e->getMessage()]);
             }
 
-            $conversation = Conversation::create([
-                'type' => Conversation::TYPE_DIRECT,
-                'user_one_id' => min($currentUser->id, $userId),
-                'user_two_id' => max($currentUser->id, $userId),
-            ]);
-
-            $this->syncDirectParticipants($conversation);
-        } else {
+            return response()->json(['error' => $e->getMessage()], 403);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Concurrent create — load the winner of the unique race.
+            $conversation = Conversation::query()
+                ->where('type', Conversation::TYPE_DIRECT)
+                ->where('user_one_id', $userOne)
+                ->where('user_two_id', $userTwo)
+                ->firstOrFail();
             $this->syncDirectParticipants($conversation);
         }
 
@@ -830,7 +850,13 @@ class ChatController extends Controller
     }
 
     /**
-     * Delete a conversation
+     * Delete a conversation.
+     *
+     * Direct: deletes the conversation row.
+     * Group:
+     * - Creator (`created_by`) wipe: deletes the whole group for everyone.
+     * - Other members: leave only (remove their participant row). Prefer
+     *   DELETE /groups/{id}/members/{self} for an explicit leave.
      */
     public function deleteConversation($conversationId)
     {
@@ -1208,7 +1234,7 @@ class ChatController extends Controller
     }
 
     /**
-     * Open a group conversation by id (with recent messages).
+     * Open a group conversation by id (with a bounded recent message window).
      */
     public function showGroup($conversationId)
     {
@@ -1219,19 +1245,29 @@ class ChatController extends Controller
             return response()->json(['error' => 'Not a group conversation.'], 422);
         }
 
+        $messageLimit = min(200, max(1, (int) request()->integer('limit', 150)));
+
         $conversation->load([
             'participantRows.user:id,name,image,email,last_login,last_online',
-            'messages' => function ($query) {
-                $query->with([
-                    'sender:id,name,image',
-                    'replyTo.sender:id,name',
-                    'reactions.user:id,name',
-                ])->orderBy('created_at', 'asc');
-            },
         ]);
 
+        $latestIds = $conversation->messages()
+            ->orderByDesc('created_at')
+            ->limit($messageLimit)
+            ->pluck('id');
+
+        $messages = $conversation->messages()
+            ->whereIn('id', $latestIds)
+            ->with([
+                'sender:id,name,image',
+                'replyTo.sender:id,name',
+                'reactions.user:id,name',
+            ])
+            ->orderBy('created_at', 'asc')
+            ->get();
+
         $payload = $this->serializeGroupConversation($conversation, $user);
-        $payload['messages'] = $conversation->messages->map(
+        $payload['messages'] = $messages->map(
             fn ($message) => $this->serializeChatMessage($message, true)
         )->values()->all();
 
@@ -1240,6 +1276,7 @@ class ChatController extends Controller
 
     /**
      * Rename a group (owner/admin only).
+     * Note: `admin` role is authorized here but not assigned yet — create sets owner + members only.
      */
     public function updateGroup(Request $request, $conversationId)
     {
@@ -1271,6 +1308,7 @@ class ChatController extends Controller
 
     /**
      * Add members to a group (owner/admin). Members must be followed by the actor.
+     * Note: `admin` role is authorized but never assigned by create/add today.
      */
     public function addGroupMembers(Request $request, $conversationId)
     {
@@ -1342,6 +1380,8 @@ class ChatController extends Controller
 
     /**
      * Remove a member (owner/admin) or leave the group (self).
+     * Cannot remove the group owner (except owner leaving, which promotes the next member).
+     * Note: `admin` role is authorized for removing others but is not assigned yet.
      */
     public function removeGroupMember($conversationId, $userId)
     {
