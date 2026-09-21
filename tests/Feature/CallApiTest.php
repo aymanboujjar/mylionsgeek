@@ -301,6 +301,65 @@ test('callee cannot get agora token while call is still ringing', function () {
         ->assertForbidden();
 });
 
+test('initiate stores a voip uuid for callkit hangup', function () {
+    $caller = callUser();
+    $callee = callUser();
+
+    $this->actingAs($caller, 'sanctum')
+        ->postJson('/api/mobile/calls/initiate', [
+            'callee_id' => $callee->id,
+            'type' => 'audio',
+        ])
+        ->assertCreated();
+
+    $call = Call::query()->first();
+    expect($call?->voip_uuid)->not->toBeEmpty()
+        ->and($call->voip_uuid)->toMatch('/^[0-9a-f-]{36}$/i');
+});
+
+test('initiate skips expo wake when voip push is delivered', function () {
+    $caller = callUser();
+    $callee = callUser(['apns_voip_token' => str_repeat('a', 64)]);
+
+    $this->mock(\App\Services\ApnsVoipPushService::class, function ($mock) {
+        $mock->shouldReceive('sendIncomingCall')->once()->andReturn(true);
+        $mock->shouldReceive('sendHangup')->never();
+    });
+    $this->mock(\App\Services\ExpoPushNotificationService::class, function ($mock) {
+        $mock->shouldReceive('sendDataOnly')->never();
+    });
+
+    $this->actingAs($caller, 'sanctum')
+        ->postJson('/api/mobile/calls/initiate', [
+            'callee_id' => $callee->id,
+            'type' => 'audio',
+        ])
+        ->assertCreated();
+});
+
+test('cancel sends hangup voip and silent expo wake', function () {
+    $caller = callUser();
+    $callee = callUser(['apns_voip_token' => str_repeat('b', 64)]);
+
+    $this->mock(\App\Services\ApnsVoipPushService::class, function ($mock) {
+        $mock->shouldReceive('sendIncomingCall')->once()->andReturn(true);
+        $mock->shouldReceive('sendHangup')->once()->andReturn(true);
+    });
+    $this->mock(\App\Services\ExpoPushNotificationService::class, function ($mock) {
+        $mock->shouldReceive('sendDataOnly')->once()->andReturn(true);
+    });
+
+    $callId = $this->actingAs($caller, 'sanctum')
+        ->postJson('/api/mobile/calls/initiate', ['callee_id' => $callee->id])
+        ->json('call_id');
+
+    $this->actingAs($caller, 'sanctum')
+        ->postJson("/api/mobile/calls/{$callId}/cancel")
+        ->assertOk();
+
+    expect(Call::find($callId)->status)->toBe(Call::STATUS_CANCELLED);
+});
+
 test('callee can get agora token after accepting', function () {
     $caller = callUser();
     $callee = callUser();

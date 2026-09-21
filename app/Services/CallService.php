@@ -124,12 +124,18 @@ class CallService
             throw new \RuntimeException('Failed to generate Agora token.');
         }
 
-        // Never include Agora tokens in Ably payloads — callee fetches their own via accept/token.
+        $voipUuid = (string) \Illuminate\Support\Str::uuid();
+        if (Schema::hasColumn('calls', 'voip_uuid')) {
+            $call->voip_uuid = $voipUuid;
+            $call->save();
+        }
+
         $payload = [
             'call_id' => $call->id,
             'channel_name' => $channelName,
             'call_type' => $type,
             'type' => $type,
+            'uuid' => $voipUuid,
             'caller' => $this->serializeParticipant($caller),
         ];
 
@@ -142,22 +148,18 @@ class CallService
             'channel_name' => $channelName,
             'caller_id' => $caller->id,
             'caller_name' => $caller->name,
+            'uuid' => $voipUuid,
         ];
 
-        // iOS cold-start: PushKit VoIP → CallKit (requires apns_voip_token + APNS_* env).
-        $voipUuid = (string) \Illuminate\Support\Str::uuid();
-        $this->apnsVoipPush->sendIncomingCall($callee, array_merge($pushData, [
-            'uuid' => $voipUuid,
+        // iOS cold-start: PushKit VoIP → CallKit. No Expo banner when VoIP actually sent.
+        $sentVoip = $this->apnsVoipPush->sendIncomingCall($callee, array_merge($pushData, [
             'handle' => (string) $caller->id,
         ]));
 
-        // Android + iOS fallback / foreground wake via Expo push.
-        $this->expoPush->sendToUser(
-            $callee,
-            'Incoming '.($type === Call::TYPE_VIDEO ? 'video' : 'audio').' call',
-            $caller->name.' is calling you.',
-            $pushData
-        );
+        if (! $sentVoip) {
+            // Android, or iOS without a working VoIP push: data-only wake, no notification banner.
+            $this->expoPush->sendDataOnly($callee, $pushData);
+        }
 
         return [
             'call' => $call,
@@ -296,11 +298,37 @@ class CallService
 
         $this->publishToUserChannel($call->callee_id, 'call-cancelled', [
             'call_id' => $call->id,
+            'uuid' => $call->voip_uuid,
         ]);
         // Keep legacy event name for older clients.
         $this->publishToUserChannel($call->callee_id, 'call-ended', [
             'call_id' => $call->id,
         ]);
+        $this->signalCalleeStopRinging($call);
+    }
+
+    /**
+     * Stop CallKit / CallKeep on the callee as soon as the caller hangs up.
+     */
+    private function signalCalleeStopRinging(Call $call): void
+    {
+        $callee = User::query()->find($call->callee_id);
+        if (! $callee) {
+            return;
+        }
+
+        $uuid = is_string($call->voip_uuid) ? $call->voip_uuid : null;
+        $data = [
+            'type' => 'call_cancelled',
+            'call_id' => $call->id,
+            'uuid' => $uuid,
+            'cancelled' => '1',
+        ];
+
+        if ($uuid) {
+            $this->apnsVoipPush->sendHangup($callee, $uuid, $call->id);
+        }
+        $this->expoPush->sendDataOnly($callee, $data);
     }
 
     public function end(int $callId, User $user): void

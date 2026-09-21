@@ -187,6 +187,7 @@ class CallController extends Controller
                 'type' => $call->type ?? Call::TYPE_AUDIO,
                 'call_type' => $call->type ?? Call::TYPE_AUDIO,
                 'status' => $call->status,
+                'uuid' => $call->voip_uuid,
                 'caller' => [
                     'id' => $call->caller->id,
                     'name' => $call->caller->name,

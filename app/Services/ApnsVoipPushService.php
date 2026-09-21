@@ -56,12 +56,30 @@ class ApnsVoipPushService
             'handle' => (string) ($callPayload['handle'] ?? $callId ?? $uuid),
             'call_id' => $callId,
             'call_type' => $callType,
-            'type' => 'incoming_call',
+            'type' => (string) ($callPayload['type'] ?? 'incoming_call'),
             'channel_name' => $callPayload['channel_name'] ?? null,
             'caller_id' => $callPayload['caller_id'] ?? null,
         ];
+        if (! empty($callPayload['cancelled'])) {
+            $body['cancelled'] = '1';
+            $body['type'] = 'call_cancelled';
+        }
 
         return $this->send($token, $body);
+    }
+
+    /**
+     * End a CallKit ringing call (same UUID as the incoming VoIP).
+     */
+    public function sendHangup(User $user, string $uuid, mixed $callId): bool
+    {
+        return $this->sendIncomingCall($user, [
+            'uuid' => $uuid,
+            'call_id' => $callId,
+            'type' => 'call_cancelled',
+            'cancelled' => '1',
+            'caller_name' => 'LionsGeek',
+        ]);
     }
 
     /**
