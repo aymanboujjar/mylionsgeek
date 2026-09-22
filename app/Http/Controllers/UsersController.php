@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use App\Models\Contract;
 use App\Models\Follower;
 use App\Models\Like;
@@ -1095,6 +1096,7 @@ class UsersController extends Controller
             'email' => 'nullable|email|unique:users,email,' . $user->id,
             'roles' => 'nullable|array',
             'roles.*' => 'string|in:student,coach,admin,super_admin,moderateur,studio_responsable,responsable_studio,coworker,pro,recruiter',
+            'roles_submitted' => 'nullable|boolean',
             'status' => 'nullable|string|in:'.implode(',', UserLifeStatusService::ALLOWED_VALUES),
             'formation_id' => 'nullable|integer|exists:formations,id',
             'phone' => 'nullable|string',
@@ -1110,6 +1112,39 @@ class UsersController extends Controller
             'access_studio' => 'nullable|integer|in:0,1',
             'access_scan' => 'nullable|integer|in:0,1',
         ]);
+
+        // Resolve roles before any mutations so authorization failures never
+        // partially save formation/files. Use ValidationException (422) so
+        // Inertia EditModal onError can surface the message in the form.
+        unset($validated['roles'], $validated['role'], $validated['roles_submitted']);
+        $isSelfUpdate = (int) $actor->id === (int) $user->id;
+        $rolesWereSubmitted = $request->exists('roles') || $request->boolean('roles_submitted');
+        if ($canEditOthers && $rolesWereSubmitted) {
+            if ($isSelfUpdate) {
+                throw ValidationException::withMessages([
+                    'roles' => 'You cannot change your own roles. Another admin must update them for you.',
+                ]);
+            }
+
+            $roles = $request->input('roles', []);
+            if (! is_array($roles)) {
+                $roles = [];
+            }
+            $roles = array_values(array_filter(array_map(function ($r) {
+                return strtolower(trim((string) $r));
+            }, $roles), fn ($r) => $r !== ''));
+
+            if (! $actor->mayAssignPrivilegedRoles()) {
+                $blocked = array_values(array_intersect($roles, User::ADMIN_ONLY_GRANT_ROLES));
+                if ($blocked !== []) {
+                    throw ValidationException::withMessages([
+                        'roles' => 'You are not allowed to assign one or more of the selected roles.',
+                    ]);
+                }
+            }
+
+            $validated['role'] = $roles;
+        }
 
         // Gender / handicap / program_status: staff-only; handicap is admin-only health data.
         if (! $canEditOthers) {
@@ -1168,24 +1203,6 @@ class UsersController extends Controller
             $validated['resume'] = $user->storeResumeFromUpload($request->file('resume'));
         }
 
-        // Map roles (array) to 'role' JSON column, lowercased.
-        // SECURITY: only staff who can edit others may change roles, and never on
-        // themselves (an admin cannot demote/lock themselves out — another admin must).
-        // Students must never escalate via mass-assignment on self-update.
-        unset($validated['roles'], $validated['role']);
-        $isSelfUpdate = (int) $actor->id === (int) $user->id;
-        if ($canEditOthers && $request->exists('roles')) {
-            if ($isSelfUpdate) {
-                abort(403, 'You are not allowed to change your own role.');
-            }
-            $roles = $request->input('roles');
-            if (is_array($roles)) {
-                $actor->assertMayAssignRoles($roles);
-                $validated['role'] = array_values(array_map(function ($r) {
-                    return strtolower((string) $r);
-                }, $roles));
-            }
-        }
         $currentStatusNormalized = strtolower(trim((string) $user->status));
 
         if ($isSelfUpdate && ! $canEditOthers) {

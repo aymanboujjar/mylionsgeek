@@ -64,6 +64,8 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         userRolesLower.includes('studio_responsable') ||
         userRolesLower.includes('responsable_studio');
     const [errors, setErrors] = useState({});
+    const [formBanner, setFormBanner] = useState('');
+    const [submitting, setSubmitting] = useState(false);
     const [newSocialPlatform, setNewSocialPlatform] = useState('');
     const [newSocialUrl, setNewSocialUrl] = useState('');
     const [socialValidationError, setSocialValidationError] = useState('');
@@ -182,6 +184,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
             access_scan: editedUser.access_scan === 1 ? 'Yes' : 'No',
         });
         setSocialLinks(editedUser?.social_links || []);
+        setErrors({});
+        setFormBanner('');
+        setSubmitting(false);
     }, [open, editedUser, canEditOthers, status]);
     const validateSocialUrl = () => {
         if (!newSocialPlatform || !newSocialUrl) return false;
@@ -244,10 +249,21 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         });
     };
 
+    const formatFieldError = (value) => {
+        if (!value) return null;
+        return Array.isArray(value) ? value[0] : value;
+    };
+
+    const firstFormError = (err) => {
+        if (!err || typeof err !== 'object') return null;
+        const first = Object.values(err)[0];
+        return formatFieldError(first);
+    };
+
     const submitEdit = (e) => {
         e.preventDefault();
 
-        if (!editedUser) return;
+        if (!editedUser || submitting) return;
 
         const form = new FormData();
 
@@ -255,8 +271,10 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
         form.append('name', formData.name);
         form.append('email', formData.email);
         // Never send roles when editing yourself — another admin must change them.
+        // Always mark roles_submitted so clearing roles still updates the column.
         if (!isEditingSelf) {
-            formData.roles.forEach((r) => form.append('roles[]', r));
+            form.append('roles_submitted', '1');
+            (formData.roles || []).forEach((r) => form.append('roles[]', r));
         }
         if (showStatusField && formData.status) {
             form.append('status', formData.status);
@@ -292,15 +310,26 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
             form.append('resume', formData.resumeFile);
         }
 
+        setSubmitting(true);
+        setFormBanner('');
+        setErrors({});
+
         router.post(`/students/update/${editedUser.id}`, form, {
             forceFormData: true,
+            preserveScroll: true,
+            preserveState: true,
             onSuccess: () => {
                 setErrors({});
+                setFormBanner('');
                 onClose();
             },
             onError: (err) => {
-                setErrors(err);
+                setErrors(err || {});
+                setFormBanner(formatFieldError(err?.roles) || firstFormError(err) || 'Failed to update user. Check the form and try again.');
                 console.error('Form submission error:', err);
+            },
+            onFinish: () => {
+                setSubmitting(false);
             },
         });
     };
@@ -327,6 +356,11 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                     <DialogTitle>{editedUser ? getInitials(editedUser.name) : 'Modify user'}</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={submitEdit} className="mt-2 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {formBanner ? (
+                        <div className="col-span-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-2 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+                            {formBanner}
+                        </div>
+                    ) : null}
                     {/* Avatar */}
                     <div className="col-span-1 mb-4 flex flex-col items-center gap-4 md:col-span-2">
                         <div className="relative h-24 w-24">
@@ -362,6 +396,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                     <div className="col-span-1">
                         <Label htmlFor="email">Email</Label>
                         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                        {errors.email && (
+                            <p className="mt-1 text-xs text-red-500">{formatFieldError(errors.email)}</p>
+                        )}
                     </div>
                     {/* Phone — only when index DTO includes it (admin/super_admin) */}
                     {canGrantStaffRoles && (
@@ -626,6 +663,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                                         canGrantStaffRoles={canGrantStaffRoles}
                                     />
                                 )}
+                                {errors.roles && (
+                                    <p className="mt-1 text-xs text-red-500">{formatFieldError(errors.roles)}</p>
+                                )}
                             </div>
                         )}
                     </Rolegard>
@@ -752,7 +792,9 @@ const EditUserModal = ({ open, editedUser, onClose, roles = [], status = [], tra
                                 >
                                     Cancel
                                 </Button>
-                                <Button type="submit">Save changes</Button>
+                                <Button type="submit" disabled={submitting}>
+                                    {submitting ? 'Saving…' : 'Save changes'}
+                                </Button>
                             </div>
                         </div>
                     </div>

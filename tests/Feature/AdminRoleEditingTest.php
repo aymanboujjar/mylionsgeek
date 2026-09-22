@@ -106,7 +106,8 @@ test('admin cannot change their own roles', function () {
             'email' => $admin->email,
             'roles' => ['student'],
         ])
-        ->assertForbidden();
+        ->assertRedirect()
+        ->assertSessionHasErrors('roles');
 
     expect($admin->fresh()->normalizedRoles())->toBe(['admin']);
 });

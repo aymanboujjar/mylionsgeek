@@ -74,7 +74,8 @@ test('coach cannot assign admin through student update', function () {
             'email' => $target->email,
             'roles' => ['admin'],
         ])
-        ->assertForbidden();
+        ->assertRedirect()
+        ->assertSessionHasErrors('roles');
 
     expect($target->fresh()->normalizedRoles())->toBe(['student']);
 });
@@ -90,7 +91,8 @@ test('coach cannot assign super_admin through student update', function () {
             'email' => $target->email,
             'roles' => ['super_admin'],
         ])
-        ->assertForbidden();
+        ->assertRedirect()
+        ->assertSessionHasErrors('roles');
 
     expect($target->fresh()->normalizedRoles())->toBe(['student']);
 });
@@ -106,7 +108,8 @@ test('studio_responsable cannot assign admin through student update', function (
             'email' => $target->email,
             'roles' => ['admin'],
         ])
-        ->assertForbidden();
+        ->assertRedirect()
+        ->assertSessionHasErrors('roles');
 
     expect($target->fresh()->normalizedRoles())->toBe(['student']);
 });
@@ -122,7 +125,8 @@ test('coach cannot assign coach through student update', function () {
             'email' => $target->email,
             'roles' => ['coach'],
         ])
-        ->assertForbidden();
+        ->assertRedirect()
+        ->assertSessionHasErrors('roles');
 
     expect($target->fresh()->normalizedRoles())->toBe(['student']);
 });
@@ -157,7 +161,8 @@ test('studio_responsable cannot assign moderateur through student update', funct
             'email' => $target->email,
             'roles' => ['moderateur'],
         ])
-        ->assertForbidden();
+        ->assertRedirect()
+        ->assertSessionHasErrors('roles');
 
     expect($target->fresh()->normalizedRoles())->toBe(['student']);
 });
@@ -172,7 +177,8 @@ test('studio_responsable cannot self-escalate to recruiter', function () {
             'email' => $staff->email,
             'roles' => ['recruiter'],
         ])
-        ->assertForbidden();
+        ->assertRedirect()
+        ->assertSessionHasErrors('roles');
 
     expect($staff->fresh()->normalizedRoles())->toBe(['studio_responsable']);
 });
